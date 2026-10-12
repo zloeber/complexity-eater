@@ -1,0 +1,9 @@
+/target
+**/*.rs.bk
+.DS_Store
+*.commonroom.db
+*.commonroom.db-*
+*.db
+*.sqlite3
+/workspace.md
+/dist

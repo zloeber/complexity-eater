@@ -1,0 +1,27 @@
+[package]
+name = "ce-http"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Complexity Eater HTTP and MCP adapter"
+
+[dependencies]
+ce-core.workspace = true
+ce-protocol.workspace = true
+axum.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+http.workspace = true
+tower.workspace = true
+tracing.workspace = true
+async-stream.workspace = true
+futures-util.workspace = true
+sha2.workspace = true
+hex.workspace = true
+base64.workspace = true
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["cookies", "json"] }
+tokio.workspace = true

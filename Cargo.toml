@@ -1,0 +1,49 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ce-protocol",
+    "crates/ce-core",
+    "crates/ce-transport",
+    "crates/ce-http",
+    "crates/ce-cli",
+]
+default-members = ["crates/ce-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+rust-version = "1.85"
+
+[workspace.dependencies]
+ce-protocol = { path = "crates/ce-protocol" }
+ce-core = { path = "crates/ce-core" }
+ce-transport = { path = "crates/ce-transport" }
+ce-http = { path = "crates/ce-http" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+sha2 = "0.10"
+hex = "0.4"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+similar = "2.6"
+getrandom = "0.2"
+libc = "0.2"
+regex = "1"
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+http = "1"
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-stream = "0.3"
+futures-util = "0.3"
+bytes = "1"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1

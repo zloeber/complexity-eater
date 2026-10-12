@@ -1,0 +1,44 @@
+version: "3"
+
+tasks:
+  setup:
+    desc: Fetch the locked dependency graph
+    cmds:
+      - cargo fetch --locked
+
+  check:
+    desc: Format, lint, and test
+    cmds:
+      - cargo fmt --all -- --check
+      - cargo clippy --all-targets --locked -- -D warnings
+      - cargo test --workspace --locked
+
+  test:
+    desc: Run unit and integration tests
+    cmds:
+      - cargo test --workspace --locked
+
+  lint:
+    desc: Run clippy with warnings denied
+    cmds:
+      - cargo clippy --all-targets --locked -- -D warnings
+
+  build:
+    desc: Build the ce binary in debug mode
+    cmds:
+      - cargo build --locked --bin ce
+
+  e2e:
+    desc: Run the CLI, dialer, and proposal lifecycle tests
+    cmds:
+      - cargo test --locked -p ce-cli --test parity
+
+  release:
+    desc: Build the stripped release binary
+    cmds:
+      - cargo build --release --locked --bin ce
+
+  parity:
+    desc: Run the full Rust parity suite
+    cmds:
+      - cargo test --workspace --locked
