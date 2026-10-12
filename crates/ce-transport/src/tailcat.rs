@@ -2,6 +2,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -33,9 +34,11 @@ pub struct TailcatTransport {
     local_url: Option<String>,
     child: Option<Child>,
     listener: Option<TcpListener>,
-    stdout: Option<BufReader<std::process::ChildStdout>>,
+    lines: Option<Receiver<String>>,
+    readers: Vec<JoinHandle<()>>,
     output: Arc<Mutex<Vec<String>>>,
     drain: Option<JoinHandle<()>>,
+    spawned_pid: Option<u32>,
 }
 
 impl TailcatTransport {
@@ -53,9 +56,11 @@ impl TailcatTransport {
             local_url: None,
             child: None,
             listener: None,
-            stdout: None,
+            lines: None,
+            readers: Vec::new(),
             output: Arc::new(Mutex::new(Vec::new())),
             drain: None,
+            spawned_pid: None,
         }
     }
 
@@ -102,97 +107,97 @@ impl TailcatTransport {
             .stdout
             .take()
             .ok_or_else(|| transport_unavailable("transport process did not start"))?;
-        // Merge is not available after spawn with separate stderr. Read stderr into the same buffer via a thread.
-        if let Some(stderr) = child.stderr.take() {
-            let output = Arc::clone(&self.output);
-            std::thread::spawn(move || {
-                let mut reader = BufReader::new(stderr);
-                let mut line = String::new();
-                while reader.read_line(&mut line).unwrap_or(0) > 0 {
-                    push_output(&output, &line);
-                    line.clear();
-                }
-            });
-        }
-        self.stdout = Some(BufReader::new(stdout));
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| transport_unavailable("transport process did not start"))?;
+        // The address is printed on stderr. Both streams feed one queue so a quiet stdout cannot block startup.
+        let (tx, rx) = mpsc::channel();
+        self.readers.push(pump_lines(stdout, tx.clone()));
+        self.readers.push(pump_lines(stderr, tx));
+        self.lines = Some(rx);
+        self.spawned_pid = Some(child.id());
         self.child = Some(child);
         Ok(())
     }
 
     fn read_endpoint(&mut self) -> Result<String, CommonroomError> {
+        if self.lines.is_none() {
+            return Err(transport_unavailable("transport process did not start"));
+        }
         let deadline = Instant::now() + self.timeout;
-        let mut reader = self
-            .stdout
-            .take()
-            .ok_or_else(|| transport_unavailable("transport process did not start"))?;
         let mut collected = String::new();
         loop {
             if Instant::now() >= deadline {
                 break;
             }
-            if self
-                .child
-                .as_mut()
-                .and_then(|child| child.try_wait().ok())
-                .flatten()
-                .is_some()
-            {
-                let mut rest = String::new();
-                let _ = reader.read_to_string(&mut rest);
-                if !rest.is_empty() {
-                    push_output(&self.output, &rest);
-                    collected.push_str(&rest);
-                }
-                if let Some(endpoint) = parse_endpoint(&rest).or_else(|| parse_endpoint(&collected))
-                {
-                    self.stdout = Some(reader);
-                    return Ok(endpoint);
-                }
+            let slice =
+                Duration::from_millis(50).min(deadline.saturating_duration_since(Instant::now()));
+            if slice.is_zero() {
                 break;
             }
-            let mut line = String::new();
-            match reader.read_line(&mut line) {
-                Ok(0) => break,
-                Ok(_) => {
+            let received = self.lines.as_ref().expect("lines").recv_timeout(slice);
+            match received {
+                Ok(line) => {
+                    let endpoint = parse_endpoint(&line);
                     push_output(&self.output, &line);
                     collected.push_str(&line);
-                    if let Some(endpoint) = parse_endpoint(&line) {
-                        self.stdout = Some(reader);
+                    if let Some(endpoint) = endpoint {
                         return Ok(endpoint);
                     }
                 }
-                Err(_) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if self.child_exited() {
+                        if let Some(endpoint) = self.drain_available(&mut collected) {
+                            return Ok(endpoint);
+                        }
+                        break;
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    if let Some(endpoint) = self.drain_available(&mut collected) {
+                        return Ok(endpoint);
+                    }
+                    break;
+                }
             }
         }
-        self.stdout = Some(reader);
         Err(
             transport_unavailable("transport did not publish an endpoint")
                 .detail("install", INSTALL)
-                .detail(
-                    "output",
-                    redact(&collected)
-                        .chars()
-                        .rev()
-                        .take(1000)
-                        .collect::<String>()
-                        .chars()
-                        .rev()
-                        .collect::<String>(),
-                ),
+                .detail("output", tail(&redact(&collected), 1000)),
         )
     }
 
+    fn drain_available(&self, collected: &mut String) -> Option<String> {
+        let rx = self.lines.as_ref()?;
+        let mut found = None;
+        while let Ok(line) = rx.try_recv() {
+            if found.is_none() {
+                found = parse_endpoint(&line);
+            }
+            push_output(&self.output, &line);
+            collected.push_str(&line);
+        }
+        found
+    }
+
+    fn child_exited(&mut self) -> bool {
+        self.child
+            .as_mut()
+            .and_then(|child| child.try_wait().ok())
+            .flatten()
+            .is_some()
+    }
+
     fn start_drain(&mut self) {
-        let Some(reader) = self.stdout.take() else {
+        let Some(rx) = self.lines.take() else {
             return;
         };
         let output = Arc::clone(&self.output);
         self.drain = Some(std::thread::spawn(move || {
-            let mut reader = reader;
-            let mut line = String::new();
-            while reader.read_line(&mut line).unwrap_or(0) > 0 {
+            while let Ok(line) = rx.recv() {
                 push_output(&output, &line);
-                line.clear();
             }
         }));
     }
@@ -243,14 +248,24 @@ impl TailcatTransport {
     }
 
     fn stop_and_collect(&mut self) -> String {
+        self.shutdown_child();
+        self.output.lock().expect("output").join("")
+    }
+
+    fn shutdown_child(&mut self) {
+        self.lines.take();
         if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+            if child.try_wait().ok().flatten().is_none() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+        for reader in self.readers.drain(..) {
+            let _ = reader.join();
         }
         if let Some(drain) = self.drain.take() {
             let _ = drain.join();
         }
-        self.output.lock().expect("output").join("")
     }
 }
 
@@ -352,16 +367,7 @@ impl Transport for TailcatTransport {
 
     fn close(&mut self) {
         self.listener.take();
-        if let Some(mut child) = self.child.take() {
-            if child.try_wait().ok().flatten().is_none() {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-        }
-        if let Some(drain) = self.drain.take() {
-            let _ = drain.join();
-        }
-        self.stdout.take();
+        self.shutdown_child();
     }
 
     fn describe(&self) -> Result<Value, CommonroomError> {
@@ -384,6 +390,18 @@ impl Transport for TailcatTransport {
     fn local_url(&self) -> Option<String> {
         self.local_url.clone()
     }
+}
+
+fn pump_lines(stream: impl Read + Send + 'static, tx: mpsc::Sender<String>) -> JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        while reader.read_line(&mut line).unwrap_or(0) > 0 {
+            if tx.send(std::mem::take(&mut line)).is_err() {
+                break;
+            }
+        }
+    })
 }
 
 fn push_output(output: &Mutex<Vec<String>>, line: &str) {
@@ -484,17 +502,17 @@ mod tests {
 
     #[test]
     fn forward_failure_kills_the_child() {
-        let dir = std::env::temp_dir().join(format!("ce-tailcat-forward-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "ce-tailcat-forward-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let pidfile = dir.join("pid");
-        let binary = fake_binary(
-            &dir,
-            &format!(
-                "#!/bin/sh\necho $$ > {}\nexec sleep 30\n",
-                pidfile.display()
-            ),
-        );
+        let binary = fake_binary(&dir, "#!/bin/sh\nexec sleep 30\n");
         let mut plugin = TailcatTransport::new(Some(binary), 0.4);
         let err = match plugin
             .connect(&json!({"type": "tailcat", "address": "tcABCDEFGHIJKLMNOPQRSTUV", "port": 9}))
@@ -503,12 +521,8 @@ mod tests {
             Ok(_) => panic!("expected forward to fail"),
         };
         assert!(err.message.contains("did not open"), "{}", err.message);
+        let pid = plugin.spawned_pid.expect("child pid");
         plugin.close();
-        let pid: i32 = std::fs::read_to_string(&pidfile)
-            .unwrap()
-            .trim()
-            .parse()
-            .unwrap();
         let alive = std::process::Command::new("kill")
             .args(["-0", &pid.to_string()])
             .status()
@@ -516,6 +530,46 @@ mod tests {
             .unwrap_or(false);
         assert!(!alive, "child {pid} still alive");
         assert!(!redact("noise tcSECRETADDRESSVALUE1234 end").contains("tcSECRETADDRESSVALUE1234"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stderr_address_becomes_ready_without_blocking() {
+        let dir = std::env::temp_dir().join(format!("ce-tailcat-stderr-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let binary = fake_binary(
+            &dir,
+            "#!/bin/sh\necho '# Server listening with new address: tcABCDEFGHIJKLMNOPQRSTUV' >&2\nexec sleep 30\n",
+        );
+        let started = Instant::now();
+        let mut plugin = TailcatTransport::new(Some(binary), 2.0);
+        let description = plugin.expose(9).expect("stderr address should be enough");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "startup blocked"
+        );
+        assert_eq!(description["address"], "tcABCDEFGHIJKLMNOPQRSTUV");
+        assert_eq!(description["encrypted"], true);
+        plugin.close();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn silent_process_stops_at_the_timeout() {
+        let dir = std::env::temp_dir().join(format!("ce-tailcat-silent-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let binary = fake_binary(&dir, "#!/bin/sh\nexec sleep 30\n");
+        let started = Instant::now();
+        let mut plugin = TailcatTransport::new(Some(binary), 0.4);
+        let err = plugin.expose(9).unwrap_err();
+        assert!(err.message.contains("did not publish"), "{}", err.message);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "startup blocked"
+        );
+        plugin.close();
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
