@@ -31,8 +31,10 @@ jobs:
       - name: Include the system diagram
         run: |
           set -euo pipefail
-          mkdir -p _site/architecture
-          cp docs/architecture/system.html _site/architecture/system.html
+          # jekyll-build-pages writes _site as root, so the runner user cannot create files there.
+          sudo mkdir -p _site/architecture
+          sudo cp docs/architecture/system.html _site/architecture/system.html
+          sudo chmod a+r _site/architecture/system.html
       - uses: actions/upload-pages-artifact@v3
       - id: deployment
         uses: actions/deploy-pages@v4
