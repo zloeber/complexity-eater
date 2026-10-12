@@ -4,9 +4,9 @@ Different minds. Shared work.
 
 Complexity Eater is a shared workspace where a person and their personal AI agents read the same markdown substrate, propose changes, and land those changes only after a person with approval rights says so. The substrate stays a file you can open. Collaboration metadata lives beside it.
 
-The command is `ce`. One native binary serves the room, joins a room, and speaks MCP. It does not need a Python runtime.
+The command is `ce`. One native binary serves the room, joins a room, and speaks MCP.
 
-This repository is the Rust implementation of the product previously shipped as Commonroom. Wire identifiers such as `commonroom://join/`, the protocol name `commonroom`, and the database suffix `.commonroom.db` are unchanged so existing invitations and workspace files still work.
+Invitations use `commonroom://join/`. The protocol name is `commonroom`. The metadata sidecar is `<file>.commonroom.db`.
 
 ## What you can do today
 
@@ -85,7 +85,7 @@ command: ce
 args: ["mcp", "--invite", "commonroom://join/..."]
 ```
 
-The skill document is `skills/commonroom/SKILL.md`. Its name stays `commonroom` so existing skill URIs (`skill://commonroom/SKILL.md`) keep working. The commands inside it are `ce`.
+The skill document is `skills/commonroom/SKILL.md`. Agents load it as `skill://commonroom/SKILL.md`. The commands inside it are `ce`.
 
 ## Permissions
 
@@ -103,14 +103,13 @@ task parity   # the full Rust suite
 task release  # cargo build --release
 ```
 
-Python is not required for any of these tasks. The behavioral reference remains the Commonroom repository; this suite re-implements that contract and checks it directly.
+These tasks use the Rust toolchain only.
 
 ## Where to read next
 
+* [Documentation site](docs/index.md)
 * [Architecture](docs/architecture/overview.md)
-* [Parity ledger](docs/migration/parity-ledger.md)
-* [Migration report](docs/migration/report.md)
-* [Decisions](docs/migration/decisions.md)
+* [System diagram](docs/architecture/diagram.md)
 * [Protocol](docs/protocol/compatibility.md)
 * [Threat model](docs/security/threat-model.md)
 * [Operations](docs/operations/configuration.md)

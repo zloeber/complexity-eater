@@ -1,6 +1,8 @@
-# Protocol compatibility
+---
+title: Protocol
+---
 
-The protocol name is `commonroom` and the version is `"1"`. A numeric `1` is accepted on invitations because the reference coerced versions with `str(version)`.
+The protocol name is `commonroom` and the version is `"1"`. A numeric `1` is also accepted on invitations.
 
 ## Invitation
 
@@ -54,6 +56,6 @@ Discovery reports `cacheScope: public`, `supportedVersions: ["2026-07-28"]`, and
 
 ## Persistence
 
-The markdown file is the artifact. The sidecar `<file>.commonroom.db` holds participants, sessions, invitations, leases, proposals, events, and versions. Opening an existing Python sidecar uses that schema, including the columns added during the Commonroom security work. There is no separate import step.
+The markdown file is the artifact. The sidecar `<file>.commonroom.db` holds participants, sessions, invitations, leases, proposals, events, and versions.
 
-Timestamps are RFC 3339 with a numeric offset (`+00:00`) and microsecond precision, matching Python's `datetime.isoformat()`.
+Timestamps are RFC 3339 with a numeric offset (`+00:00`) and microsecond precision.

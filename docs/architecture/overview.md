@@ -1,4 +1,8 @@
-# Architecture
+---
+title: Architecture
+---
+
+The [system diagram](diagram.md) is the picture of a running room. This page is the crate and request map.
 
 Complexity Eater is one binary, `ce`, built from a Cargo workspace. The crates are boundaries that already exist in the running product. Empty crates were not added.
 

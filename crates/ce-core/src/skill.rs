@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
 const FALLBACK: &str = "\
-# Commonroom
+# Complexity Eater
 
-The Commonroom skill file was not installed with this package.
+The skill file was not installed with this package.
 Discover the live protocol at `/.well-known/agent-workspace`, `/protocol`, and `/skills`.
 Join with the invitation, then observe, checkout, propose, and commit only after review.
 ";

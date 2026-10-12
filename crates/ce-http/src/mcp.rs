@@ -546,7 +546,7 @@ fn tool_error(err: CommonroomError) -> Value {
 fn prompts_list() -> Value {
     json!({
         "resultType": "complete",
-        "prompts": [{"name": "workspace_onboarding", "description": "How to collaborate in this Commonroom before editing."}],
+        "prompts": [{"name": "workspace_onboarding", "description": "How to collaborate in this room before editing."}],
         "ttlMs": 300_000,
         "cacheScope": "public"
     })
@@ -558,7 +558,7 @@ fn prompts_get(params: &Value) -> Result<Value, RpcError> {
     }
     Ok(json!({
         "resultType": "complete",
-        "description": "How to collaborate in this Commonroom before editing.",
+        "description": "How to collaborate in this room before editing.",
         "messages": [{"role": "user", "content": {"type": "text", "text": ONBOARDING}}],
         "ttlMs": 300_000,
         "cacheScope": "public"
@@ -653,7 +653,7 @@ fn rpc_error(id: Value, code: i64, message: &str, status: u16, data: Option<Valu
 }
 
 const ONBOARDING: &str = "\
-Work in this Commonroom in this order:
+Work in this room in this order:
 1. Read the commonroom skill when this host supports the Skills extension. Otherwise follow the steps below.
 2. workspace_status
 3. workspace_summary

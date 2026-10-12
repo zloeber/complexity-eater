@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "1b560456-ee33-4a0a-8812-b6e29c0519b2",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/zloeber/Projects/complexity-eater/.archify/architecture-complexity-eater-20261011-210511/candidate.json",
+  "output": "/Users/zloeber/Projects/complexity-eater/.archify/architecture-complexity-eater-20261011-210511/complexity-eater.html",
+  "specification": {
+    "sha256": "2b53034251314c61adb6326ee33a19d565abc45b819113a8727c1587bbbb7818",
+    "bytes": 8531
+  },
+  "artifact": {
+    "sha256": "3eaa891a2b410b2e24efca1a9ffe32ce3d92a4b6bd43b1e777837b8c80c46365",
+    "bytes": 768441
+  }
+}

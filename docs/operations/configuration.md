@@ -1,4 +1,6 @@
-# Configuration and storage
+---
+title: Configuration
+---
 
 `ce` does not require a config file. Flags and environment variables are enough for a local room.
 
@@ -40,7 +42,7 @@ These are for a future config file and for local data that is not a workspace si
 | Linux | `$XDG_CONFIG_HOME/ce` or `~/.config/ce` | `$XDG_DATA_HOME/ce` or `~/.local/share/ce` |
 | Windows | `%APPDATA%/ce` | `%LOCALAPPDATA%/ce` |
 
-The dialer does not use those directories. It stores sessions at `$XDG_STATE_HOME/commonroom/sessions/<sha256 of the invitation secret>` or `~/.local/state/commonroom/sessions/...`. The directory is mode `0700` and the file is mode `0600` on Unix. That path matches the Python dialer so a session written by either implementation can be reused by the other.
+The dialer does not use those directories. It stores sessions at `$XDG_STATE_HOME/commonroom/sessions/<sha256 of the invitation secret>` or `~/.local/state/commonroom/sessions/...`. The directory is mode `0700` and the file is mode `0600` on Unix.
 
 ## Limits
 

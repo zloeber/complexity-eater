@@ -1,4 +1,6 @@
-# Threat model
+---
+title: Threat model
+---
 
 Complexity Eater assumes the people and agents in a room do not all trust each other, and that a transport provider can see that a connection exists. It does not assume a global operator. Local use has no account, no telemetry, and no required network.
 

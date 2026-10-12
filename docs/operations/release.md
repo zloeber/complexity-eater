@@ -1,6 +1,8 @@
-# Release and upgrade
+---
+title: Release
+---
 
-## Build
+## Local build
 
 ```sh
 task release
@@ -8,20 +10,32 @@ task release
 
 That runs `cargo build --release --locked --bin ce`. The release profile strips symbols, uses thin LTO, and one codegen unit. The artifact is `target/release/ce`.
 
-`ce --version` prints the workspace package version. Checksums are the operator's responsibility until a tagged GitHub release exists. A source checkout plus `Cargo.lock` is the reproducible input. System libraries that Rust links dynamically, such as the platform C library, remain platform dependencies. This binary does not need Python, a virtualenv, or a second service.
+`ce --version` prints the workspace package version. A source checkout plus `Cargo.lock` is the reproducible input. System libraries that Rust links dynamically, such as the platform C library, remain platform dependencies. The release binary does not need another language runtime or a second service.
 
 CI on Ubuntu runs formatting, clippy with warnings denied, `cargo test --locked`, a release build, and `cargo audit`.
 
+## Tagged releases
+
+A push to `main` that passes CI is inspected for semantic-release commit prefixes:
+
+| Prefix | Version bump |
+| --- | --- |
+| `feat!:` or a `BREAKING CHANGE:` footer | major |
+| `feat:` | minor |
+| `fix:` or `perf:` | patch |
+
+`docs:`, `test:`, `refactor:`, `chore:`, `ci:`, `build:`, and `style:` do not create a tag.
+
+A releasable commit updates the workspace version in `Cargo.toml` and `Cargo.lock`, tags `vX.Y.Z`, and opens a GitHub release. The tag then builds `ce` and attaches:
+
+* `ce-linux-x86_64.tar.gz`
+* `ce-linux-aarch64.tar.gz`
+* `ce-macos-aarch64.tar.gz`
+* `ce-macos-x86_64.tar.gz`
+* `SHA256SUMS`
+
+Each archive contains a single executable named `ce`.
+
 ## Upgrade
 
-Workspace files do not need a migration to move from Python Commonroom to this binary.
-
-* Keep the markdown file where it is.
-* Keep the `.commonroom.db` sidecar beside it. The schema is the same, including the hashed invitation columns.
-* Existing `commonroom://join/` invitations still decode. A spent or expired invitation still fails.
-* Agent session files under `commonroom/sessions` are reused when the session is still valid.
-* Skill URIs stay `skill://commonroom/SKILL.md`. Update the agent's command from `commonroom` to `ce`. The paste block printed by a room already uses `ce`.
-
-Cookie names and protocol identifiers were not renamed, so a browser or client that already speaks Commonroom can talk to `ce` without a flag day.
-
-There is no hosted account to migrate. When a hosted service exists, local rooms stay valid without it.
+Keep the markdown file where it is, and keep the `.commonroom.db` sidecar beside it. Invitations use `commonroom://join/`. A spent or expired invitation still fails. There is no hosted account to move.

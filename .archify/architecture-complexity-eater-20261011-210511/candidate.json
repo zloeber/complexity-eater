@@ -1,0 +1,279 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Complexity Eater",
+    "locale": "en",
+    "output": ".archify/architecture-complexity-eater-20261011-210511/complexity-eater.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "git@github.com:zloeber/complexity-eater.git",
+      "provider": "github",
+      "link_mode": "local-only",
+      "revision": "f36b95f43c2278e12f3b103bf3c19abeed833570"
+    },
+    "views": [
+      {
+        "id": "host",
+        "label": "Open a room",
+        "focus": ["person", "ce", "owner", "browser", "engine"],
+        "note": "ce serve binds loopback listeners. The human page can approve."
+      },
+      {
+        "id": "agent",
+        "label": "Agent join",
+        "focus": ["agent", "dialer", "transport", "ingress", "engine"],
+        "note": "ce mcp dials commonroom://join/ and calls the session ingress."
+      },
+      {
+        "id": "files",
+        "label": "What is stored",
+        "focus": ["engine", "markdown", "sqlite"],
+        "note": "Commits write the markdown file. The sidecar holds sessions, leases, and proposals."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "browser",
+      "type": "frontend",
+      "label": "Human browser",
+      "sublabel": "same machine",
+      "pos": [506, 8],
+      "size": [168, 64],
+      "sources": [
+        { "path": "crates/ce-http/src/app.rs", "line": 746, "end_line": 760 },
+        { "path": "crates/ce-cli/src/room.rs", "line": 95, "end_line": 102 }
+      ]
+    },
+    {
+      "id": "markdown",
+      "type": "database",
+      "label": "Markdown file",
+      "sublabel": "the substrate",
+      "pos": [790, 8],
+      "size": [160, 64],
+      "sources": [
+        { "path": "crates/ce-core/src/engine.rs", "line": 896, "end_line": 907 },
+        { "path": "crates/ce-core/src/engine.rs", "line": 878, "end_line": 888 }
+      ]
+    },
+    {
+      "id": "sqlite",
+      "type": "database",
+      "label": "SQLite sidecar",
+      "sublabel": ".commonroom.db",
+      "pos": [990, 8],
+      "size": [170, 64],
+      "sources": [
+        { "path": "crates/ce-core/src/engine.rs", "line": 401, "end_line": 410 },
+        { "path": "crates/ce-core/src/engine.rs", "line": 2531, "end_line": 2537 },
+        { "path": "crates/ce-core/src/engine.rs", "line": 2104, "end_line": 2118 }
+      ]
+    },
+    {
+      "id": "person",
+      "type": "external",
+      "label": "Person",
+      "sublabel": "opens the room",
+      "icon": "person",
+      "pos": [24, 204],
+      "size": [136, 64],
+      "sources": [
+        { "path": "crates/ce-cli/src/cli.rs", "line": 279, "end_line": 336 },
+        { "path": "crates/ce-cli/src/room.rs", "line": 172, "end_line": 172 }
+      ]
+    },
+    {
+      "id": "ce",
+      "type": "backend",
+      "label": "ce room",
+      "sublabel": "one process",
+      "pos": [240, 198],
+      "size": [156, 76],
+      "sources": [
+        { "path": "crates/ce-cli/src/room.rs", "line": 160, "end_line": 202 },
+        { "path": "crates/ce-cli/src/cli.rs", "line": 41, "end_line": 47 }
+      ]
+    },
+    {
+      "id": "owner",
+      "type": "backend",
+      "label": "Owner listener",
+      "sublabel": "127.0.0.1",
+      "tag": "can approve",
+      "pos": [500, 200],
+      "size": [180, 72],
+      "sources": [
+        { "path": "crates/ce-cli/src/room.rs", "line": 173, "end_line": 197 },
+        { "path": "crates/ce-http/src/app.rs", "line": 746, "end_line": 756 },
+        { "path": "crates/ce-core/src/engine.rs", "line": 1319, "end_line": 1370 }
+      ]
+    },
+    {
+      "id": "ingress",
+      "type": "backend",
+      "label": "Session ingress",
+      "sublabel": "bearer and MCP",
+      "tag": "POST /mcp",
+      "pos": [500, 330],
+      "size": [180, 76],
+      "sources": [
+        { "path": "crates/ce-cli/src/room.rs", "line": 180, "end_line": 202 },
+        { "path": "crates/ce-http/src/app.rs", "line": 78, "end_line": 80 },
+        { "path": "crates/ce-http/src/mcp.rs", "line": 182, "end_line": 197 }
+      ]
+    },
+    {
+      "id": "engine",
+      "type": "backend",
+      "label": "Workspace engine",
+      "sublabel": "one mutex",
+      "tag": "sole writer",
+      "pos": [800, 190],
+      "size": [280, 230],
+      "sources": [
+        { "path": "crates/ce-core/src/engine.rs", "line": 385, "end_line": 427 },
+        { "path": "crates/ce-core/src/engine.rs", "line": 454, "end_line": 461 },
+        { "path": "crates/ce-core/src/engine.rs", "line": 1933, "end_line": 1946 }
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "external",
+      "label": "Agent",
+      "sublabel": "invited",
+      "icon": "person",
+      "pos": [24, 522],
+      "size": [136, 64],
+      "sources": [
+        { "path": "crates/ce-cli/src/cli.rs", "line": 220, "end_line": 225 },
+        { "path": "crates/ce-cli/src/dialer.rs", "line": 17, "end_line": 49 },
+        { "path": "crates/ce-protocol/src/lib.rs", "line": 536, "end_line": 539 }
+      ]
+    },
+    {
+      "id": "dialer",
+      "type": "backend",
+      "label": "MCP dialer",
+      "sublabel": "ce mcp",
+      "pos": [240, 516],
+      "size": [156, 76],
+      "sources": [
+        { "path": "crates/ce-cli/src/dialer.rs", "line": 17, "end_line": 49 },
+        { "path": "crates/ce-cli/src/dialer.rs", "line": 95, "end_line": 105 },
+        { "path": "crates/ce-cli/src/http_client.rs", "line": 5, "end_line": 16 }
+      ]
+    },
+    {
+      "id": "transport",
+      "type": "backend",
+      "label": "Transport",
+      "sublabel": "loopback or Tailcat",
+      "pos": [506, 520],
+      "size": [168, 72],
+      "sources": [
+        { "path": "crates/ce-cli/src/room.rs", "line": 204, "end_line": 219 },
+        { "path": "crates/ce-transport/src/tailcat.rs", "line": 281, "end_line": 284 },
+        { "path": "crates/ce-transport/src/registry.rs", "line": 91, "end_line": 113 }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "ce process",
+      "wraps": ["ce", "owner", "ingress", "engine"]
+    },
+    {
+      "kind": "security-group",
+      "label": "127.0.0.1 listeners",
+      "wraps": ["owner", "ingress"]
+    }
+  ],
+  "connections": [
+    { "id": "person-starts", "from": "person", "to": "ce", "label": "ce serve", "variant": "emphasis" },
+    { "id": "ce-binds-owner", "from": "ce", "to": "owner", "label": "starts room" },
+    {
+      "id": "browser-cookie",
+      "from": "browser",
+      "to": "owner",
+      "label": "sets cookie",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "owner-calls",
+      "from": "owner",
+      "to": "engine",
+      "label": "host HTTP",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "ingress-calls",
+      "from": "ingress",
+      "to": "engine",
+      "label": "session HTTP",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "engine-writes-md",
+      "from": "engine",
+      "to": "markdown",
+      "label": "commit write",
+      "variant": "emphasis",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "engine-writes-db",
+      "from": "engine",
+      "to": "sqlite",
+      "label": "metadata",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    { "id": "agent-stdio", "from": "agent", "to": "dialer", "label": "JSON-RPC" },
+    { "id": "dialer-invite", "from": "dialer", "to": "transport", "label": "join URI" },
+    {
+      "id": "transport-http",
+      "from": "transport",
+      "to": "ingress",
+      "label": "HTTP/1.1",
+      "fromSide": "top",
+      "toSide": "bottom"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Listeners",
+      "items": [
+        "GET / on the owner port sets commonroom_session, HttpOnly and SameSite=Strict",
+        "POST /mcp is mounted only on the session ingress",
+        "A non-loopback bind is refused. Tailcat may publish the ingress, not the owner port"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Approval",
+      "items": [
+        "The host session holds every capability, including approve",
+        "A default invitation grants read, observe, propose, checkout, and commit",
+        "An approved proposal can be committed. A raw overwrite requires admin"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Substrate",
+      "items": [
+        "The engine is the only writer of the markdown file and the sidecar",
+        "An external edit of the markdown file becomes a new version",
+        "Invitations use the commonroom://join/ protocol"
+      ]
+    }
+  ]
+}
