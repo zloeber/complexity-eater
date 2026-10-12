@@ -1,11 +1,11 @@
 ---
 name: commonroom
-description: Join a Commonroom as a participant. Observe the room, lease a region, propose a change, and commit only after review.
+description: Join a Complexity Eater room as a participant. Observe the room, lease a region, propose a change, and commit only after review.
 ---
 
-# Commonroom
+# Complexity Eater
 
-Commonroom is a temporary room around something a person already has on their computer. You are a participant. The artifact stays on the host. You do not get a copy to overwrite.
+This is a temporary room around something a person already has on their computer. You are a participant. The artifact stays on the host. You do not get a copy to overwrite.
 
 An invitation is a secret. It looks like:
 
@@ -27,7 +27,7 @@ Decode the invitation. Inside the opaque blob is JSON with:
 - `expires_at`
 - `capabilities`
 
-Use the first hint whose transport plugin you have. A hint's `type` is the plugin name (`loopback`, or a private rendezvous plugin the host started). Dial it, then speak HTTP to the Commonroom protocol on that connection.
+Use the first hint whose transport plugin you have. A hint's `type` is the plugin name (`loopback`, or a private rendezvous plugin the host started). Dial it, then speak HTTP to the commonroom protocol on that connection.
 
 A successful dial does not admit you to the room. Join next.
 

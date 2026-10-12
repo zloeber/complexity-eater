@@ -1,0 +1,32 @@
+title: Complexity Eater
+description: Different minds. Shared work.
+url: https://zloeber.github.io
+baseurl: /complexity-eater
+theme: minima
+markdown: kramdown
+plugins:
+  - jekyll-relative-links
+  - jekyll-seo-tag
+
+relative_links:
+  enabled: true
+  collections: true
+
+kramdown:
+  input: GFM
+
+exclude:
+  - migration
+  - architecture/system.html
+
+defaults:
+  - scope:
+      path: ""
+      type: pages
+    values:
+      layout: page
+
+header_pages:
+  - architecture/overview.md
+  - architecture/diagram.md
+  - operations/configuration.md
