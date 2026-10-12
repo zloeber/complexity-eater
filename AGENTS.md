@@ -67,7 +67,7 @@ Pushes to `main` run CI (`.github/workflows/ci.yml`). After that CI succeeds, se
 | `feat:` | minor |
 | `fix:` or `perf:` | patch |
 
-`docs:`, `test:`, `refactor:`, `chore:`, `ci:`, `build:`, and `style:` do not tag. The release commit updates `Cargo.toml` and `Cargo.lock` through `scripts/set-workspace-version.zsh`. Use `chore(release):` for that commit so it does not tag again.
+`docs:`, `test:`, `refactor:`, `chore:`, `ci:`, `build:`, and `style:` do not tag. Until a version tag exists, the first successful CI on `main` publishes the `Cargo.toml` workspace version through `scripts/publish-initial-release.zsh`. The release commit updates `Cargo.toml` and `Cargo.lock` through `scripts/set-workspace-version.zsh`. Use `chore(release):` for that commit so it does not tag again.
 
 The tag build (`.github/workflows/release-binaries.yml`) produces `ce` for Linux x86_64, Linux aarch64, macOS aarch64, and macOS x86_64, then attaches the archives and `SHA256SUMS` to the GitHub release. Semantic-release creates the tag with `GITHUB_TOKEN`, which does not itself start another workflow, so the release workflow dispatches the binary workflow. A tag pushed by a person still starts that workflow directly.
 

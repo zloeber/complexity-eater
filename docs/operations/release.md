@@ -26,6 +26,8 @@ A push to `main` that passes CI is inspected for semantic-release commit prefixe
 
 `docs:`, `test:`, `refactor:`, `chore:`, `ci:`, `build:`, and `style:` do not create a tag.
 
+The first successful CI on `main`, before any `vX.Y.Z` tag exists, publishes the workspace version from `Cargo.toml`. Later releases still require one of the prefixes above.
+
 A releasable commit updates the workspace version in `Cargo.toml` and `Cargo.lock`, tags `vX.Y.Z`, and opens a GitHub release. The tag then builds `ce` and attaches:
 
 * `ce-linux-x86_64.tar.gz`
