@@ -97,20 +97,15 @@ impl TailcatTransport {
     }
 
     fn popen(&mut self, command: &[String]) -> Result<(), CommonroomError> {
-        let mut child = Command::new(&command[0])
-            .args(&command[1..])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|_| transport_unavailable("transport process did not start"))?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| transport_unavailable("transport process did not start"))?;
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| transport_unavailable("transport process did not start"))?;
+        let mut child = spawn_transport(command)?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            let _ = child.kill();
+            transport_unavailable("transport process did not start: missing stdout")
+        })?;
+        let stderr = child.stderr.take().ok_or_else(|| {
+            let _ = child.kill();
+            transport_unavailable("transport process did not start: missing stderr")
+        })?;
         // The address is printed on stderr. Both streams feed one queue so a quiet stdout cannot block startup.
         let (tx, rx) = mpsc::channel();
         self.readers.push(pump_lines(stdout, tx.clone()));
@@ -392,6 +387,45 @@ impl Transport for TailcatTransport {
     }
 }
 
+fn spawn_transport(command: &[String]) -> Result<Child, CommonroomError> {
+    let mut last_error = None;
+    for attempt in 0..5 {
+        match Command::new(&command[0])
+            .args(&command[1..])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => return Ok(child),
+            Err(err) if attempt < 4 && transient_spawn(&err) => {
+                last_error = Some(err);
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(err) => {
+                return Err(transport_unavailable(format!(
+                    "transport process did not start: {err}"
+                )));
+            }
+        }
+    }
+    Err(transport_unavailable(format!(
+        "transport process did not start: {}",
+        last_error.map(|err| err.to_string()).unwrap_or_default()
+    )))
+}
+
+fn transient_spawn(err: &std::io::Error) -> bool {
+    // A just-written test double, or a busy runner, can fail the first exec.
+    matches!(
+        err.kind(),
+        std::io::ErrorKind::ExecutableFileBusy
+            | std::io::ErrorKind::Interrupted
+            | std::io::ErrorKind::WouldBlock
+            | std::io::ErrorKind::NotFound
+            | std::io::ErrorKind::PermissionDenied
+    ) || matches!(err.raw_os_error(), Some(4 | 11 | 26))
+}
+
 fn pump_lines(stream: impl Read + Send + 'static, tx: mpsc::Sender<String>) -> JoinHandle<()> {
     std::thread::spawn(move || {
         let mut reader = BufReader::new(stream);
@@ -461,13 +495,23 @@ mod tests {
 
     fn fake_binary(dir: &std::path::Path, body: &str) -> String {
         let path = dir.join("tailcat");
-        std::fs::write(&path, body).unwrap();
-        #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = std::fs::metadata(&path).unwrap().permissions();
-            perms.set_mode(0o755);
-            std::fs::set_permissions(&path, perms).unwrap();
+            use std::io::Write;
+            #[cfg(unix)]
+            let mut file = {
+                use std::os::unix::fs::OpenOptionsExt;
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .mode(0o755)
+                    .open(&path)
+                    .unwrap()
+            };
+            #[cfg(not(unix))]
+            let mut file = std::fs::File::create(&path).unwrap();
+            file.write_all(body.as_bytes()).unwrap();
+            file.sync_all().unwrap();
         }
         path.display().to_string()
     }
