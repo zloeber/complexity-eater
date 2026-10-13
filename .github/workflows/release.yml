@@ -49,10 +49,12 @@ jobs:
         uses: cycjimmy/semantic-release-action@v4
         with:
           semantic_version: 24
+          # Preset 10 requires conventional-changelog-writer 9.
+          # semantic-release 24 loads writer 8, so an unpinned install fails in generateNotes.
           extra_plugins: |
             @semantic-release/exec
             @semantic-release/git
-            conventional-changelog-conventionalcommits
+            conventional-changelog-conventionalcommits@9.3.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Build binaries for the new tag
