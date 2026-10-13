@@ -35,6 +35,7 @@ Release publication is gated by the scans in `.github/workflows/release-binaries
 - Trivy does not see crate versions inside the binary. `cargo audit` and `cargo deny` are the crate advisory gates.
 - An attestation identifies the workflow and commit. It is not a claim that the artifact is free of vulnerabilities.
 - A tag runs the workflow stored in that commit. Semantic-release dispatches the workflow on `main`.
+- Dependabot groups each ecosystem into one pull request. The group configuration is read from the default branch.
 
 ## Verify
 - `cargo deny check` exits 0. Duplicate-version warnings may remain.
