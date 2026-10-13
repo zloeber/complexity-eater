@@ -18,6 +18,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::mcp::handle_mcp;
+use crate::notify::{
+    cursor_from, mcp_stream_response, observe_response, wants_event_stream, NotifyHub,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Access {
@@ -30,6 +33,7 @@ pub struct AppState {
     pub access: Access,
     pub host_session: Option<Session>,
     rate: Mutex<HashMap<String, Vec<Instant>>>,
+    hub: Option<Arc<NotifyHub>>,
 }
 
 pub fn create_router(
@@ -38,11 +42,17 @@ pub fn create_router(
     host_session: Option<Session>,
 ) -> Router {
     let max_bytes = engine.limits().max_request_bytes;
+    let hub = if access == Access::Session {
+        Some(NotifyHub::start(Arc::clone(&engine)))
+    } else {
+        None
+    };
     let state = Arc::new(AppState {
         engine,
         access,
         host_session,
         rate: Mutex::new(HashMap::new()),
+        hub,
     });
     let mut router = Router::new()
         .route("/.well-known/agent-workspace", get(well_known))
@@ -76,7 +86,7 @@ pub fn create_router(
         .route("/workspace/observe", get(observe))
         .route("/", get(index));
     if access == Access::Session {
-        router = router.route("/mcp", post(mcp_post).get(mcp_unused).delete(mcp_unused));
+        router = router.route("/mcp", post(mcp_post).get(mcp_get).delete(mcp_unused));
     }
     let logged = state.clone();
     router
@@ -695,13 +705,6 @@ struct ObserveQuery {
     #[serde(default)]
     since_event_id: i64,
     since_version: Option<i64>,
-    #[serde(default = "one")]
-    poll_seconds: f64,
-    max_polls: Option<i64>,
-}
-
-fn one() -> f64 {
-    1.0
 }
 
 async fn observe(
@@ -711,36 +714,13 @@ async fn observe(
 ) -> Result<Response, AppError> {
     let session = principal(&state, &headers, "anon")?;
     state.engine.require(&session, "observe")?;
-    let engine = Arc::clone(&state.engine);
-    let poll = query.poll_seconds.clamp(0.05, 5.0);
-    let stream = async_stream::stream! {
-        let mut last_id = query.since_event_id;
-        let mut polls = 0i64;
-        loop {
-            if query.max_polls.is_some_and(|max| polls >= max) {
-                break;
-            }
-            let events = engine.events_since(last_id, query.since_version, 100).unwrap_or_default();
-            if events.is_empty() {
-                yield Ok::<Bytes, std::io::Error>(Bytes::from_static(b": keepalive\n\n"));
-            } else {
-                for event in events {
-                    last_id = event.event_id;
-                    let line = format!("data: {}\n\n", serde_json::to_string(&event).unwrap_or_else(|_| "{}".into()));
-                    yield Ok::<Bytes, std::io::Error>(Bytes::from(line));
-                }
-            }
-            polls += 1;
-            if query.max_polls.is_some_and(|max| polls >= max) {
-                break;
-            }
-            tokio::time::sleep(Duration::from_secs_f64(poll)).await;
-        }
-    };
-    Ok(Response::builder()
-        .header(header::CONTENT_TYPE, "text/event-stream")
-        .body(axum::body::Body::from_stream(stream))
-        .unwrap())
+    let cursor = cursor_from(&headers, query.since_event_id);
+    Ok(observe_response(
+        Arc::clone(&state.engine),
+        session.session_id,
+        cursor,
+        query.since_version,
+    ))
 }
 
 async fn index(State(state): State<Arc<AppState>>, _headers: HeaderMap) -> Response {
@@ -764,7 +744,47 @@ async fn mcp_post(State(state): State<Arc<AppState>>, headers: HeaderMap, body: 
     if state.access != Access::Session {
         return StatusCode::NOT_FOUND.into_response();
     }
-    handle_mcp(&state.engine, &headers, &body)
+    let Some(hub) = state.hub.as_ref() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    handle_mcp(&state.engine, hub, &headers, &body)
+}
+
+async fn mcp_get(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if state.access != Access::Session {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    if !wants_event_stream(&headers) {
+        return StatusCode::METHOD_NOT_ALLOWED.into_response();
+    }
+    let Some(hub) = state.hub.clone() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let session = match principal(&state, &headers, "anon") {
+        Ok(session) => session,
+        Err(err) => return json_error(err.http_status, &err.to_value()),
+    };
+    if let Err(err) = state.engine.require(&session, "read") {
+        return json_error(err.http_status, &err.to_value());
+    }
+    let version = headers
+        .get("mcp-protocol-version")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    if version != ce_protocol::MCP_PROTOCOL_VERSION {
+        return json_error(
+            400,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": null,
+                "error": {
+                    "code": -32022,
+                    "message": "UnsupportedProtocolVersionError"
+                }
+            }),
+        );
+    }
+    mcp_stream_response(hub, Arc::clone(&state.engine), session.session_id)
 }
 
 async fn mcp_unused() -> Response {

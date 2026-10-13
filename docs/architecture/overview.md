@@ -31,7 +31,7 @@ ce serve / ce join / ce mcp / browser
         +--> <file>.commonroom.db
 ```
 
-HTTP handlers and MCP tools call the same engine methods. The page is a projection of `/workspace/room`. It is not a second write path.
+HTTP handlers and MCP tools call the same engine methods. The page is a projection of `/workspace/room`. It is not a second write path. Successful changes append a workspace event; the [event model](events.md) is how the page and MCP subscribers hear about it.
 
 ## Two listeners
 

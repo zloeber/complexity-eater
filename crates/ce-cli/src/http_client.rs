@@ -114,6 +114,125 @@ fn parse_http(blob: &[u8]) -> (u16, Value) {
     }
 }
 
+pub struct ChunkDecoder {
+    pending: Vec<u8>,
+    remaining: Option<usize>,
+    done: bool,
+}
+
+impl ChunkDecoder {
+    pub fn new() -> Self {
+        Self {
+            pending: Vec::new(),
+            remaining: None,
+            done: false,
+        }
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.done
+    }
+
+    pub fn push(&mut self, data: &[u8]) -> Vec<u8> {
+        if data.is_empty() || self.done {
+            return Vec::new();
+        }
+        self.pending.extend_from_slice(data);
+        let mut out = Vec::new();
+        loop {
+            if self.done {
+                break;
+            }
+            if let Some(remaining) = self.remaining {
+                if remaining == 0 {
+                    if self.pending.len() < 2 {
+                        break;
+                    }
+                    if self.pending.starts_with(b"\r\n") {
+                        self.pending.drain(..2);
+                        self.remaining = None;
+                        continue;
+                    }
+                    break;
+                }
+                let take = remaining.min(self.pending.len());
+                if take == 0 {
+                    break;
+                }
+                out.extend_from_slice(&self.pending[..take]);
+                self.pending.drain(..take);
+                self.remaining = Some(remaining - take);
+                continue;
+            }
+            let Some(split) = self.pending.windows(2).position(|window| window == b"\r\n") else {
+                break;
+            };
+            let line = String::from_utf8_lossy(&self.pending[..split]).to_string();
+            self.pending.drain(..split + 2);
+            let size_text = line.split(';').next().unwrap_or("0").trim();
+            let size = usize::from_str_radix(size_text, 16).unwrap_or(0);
+            if size == 0 {
+                self.done = true;
+                break;
+            }
+            self.remaining = Some(size);
+        }
+        out
+    }
+}
+
+pub fn take_sse_json(buffer: &mut String) -> Vec<Value> {
+    let mut messages = Vec::new();
+    while let Some(split) = buffer.find("\n\n") {
+        let frame: String = buffer.drain(..split + 2).collect();
+        let mut data = String::new();
+        for line in frame.split('\n') {
+            let line = line.trim_end_matches('\r');
+            if let Some(rest) = line.strip_prefix("data:") {
+                if !data.is_empty() {
+                    data.push('\n');
+                }
+                data.push_str(rest.trim_start());
+            }
+        }
+        if data.is_empty() {
+            continue;
+        }
+        if let Ok(value) = serde_json::from_str::<Value>(&data) {
+            if value.is_object() {
+                messages.push(value);
+            }
+        }
+    }
+    messages
+}
+
+pub fn header_complete(blob: &[u8]) -> Option<(u16, bool, Option<usize>, Vec<u8>)> {
+    let split = find_header_end(blob)?;
+    let head = &blob[..split];
+    let status_line = head.split(|byte| *byte == b'\r').next().unwrap_or(head);
+    let status_line = String::from_utf8_lossy(status_line);
+    let status = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+    let mut chunked = false;
+    for line in String::from_utf8_lossy(head).split("\r\n").skip(1) {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if name.eq_ignore_ascii_case("transfer-encoding")
+            && value.to_ascii_lowercase().contains("chunked")
+        {
+            chunked = true;
+        }
+    }
+    let length = content_length(head);
+    let body = blob[split + 4..].to_vec();
+    Some((status, chunked, length, body))
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::{Read, Write};
@@ -158,5 +277,24 @@ mod tests {
         assert!(req.contains("Host: commonroom"), "{req}");
         assert_eq!(status, 200, "{body}");
         assert_eq!(body["session_id"], "ses_test");
+    }
+
+    #[test]
+    fn chunk_decoder_reassembles_split_chunks() {
+        let mut decoder = super::ChunkDecoder::new();
+        assert!(decoder.push(b"5\r").is_empty());
+        assert_eq!(decoder.push(b"\nhel"), b"hel");
+        let rest = decoder.push(b"lo\r\n0\r\n\r\n");
+        assert_eq!(rest, b"lo");
+        assert!(decoder.is_done());
+    }
+
+    #[test]
+    fn sse_frames_ignore_comments_and_keep_partial_json() {
+        let mut buffer = ": keepalive\n\ndata: {\"method\":\"notifications/resources/updated\"}\n\ndata: {\"method\"".to_string();
+        let messages = super::take_sse_json(&mut buffer);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["method"], "notifications/resources/updated");
+        assert!(buffer.starts_with("data:"));
     }
 }

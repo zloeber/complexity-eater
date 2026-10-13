@@ -23,5 +23,5 @@ hex.workspace = true
 base64.workspace = true
 
 [dev-dependencies]
-reqwest = { version = "0.12", features = ["cookies", "json"] }
+reqwest = { version = "0.12", features = ["cookies", "json", "stream"] }
 tokio.workspace = true

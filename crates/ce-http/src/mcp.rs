@@ -11,6 +11,11 @@ use ce_protocol::{
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+use crate::notify::{
+    subscribable_resource, workspace_resources, NotifyHub, RESOURCE_DOCUMENT, RESOURCE_LEASES,
+    RESOURCE_PARTICIPANTS, RESOURCE_PROPOSALS, RESOURCE_STATUS,
+};
+
 const HEADER_MISMATCH: i64 = -32020;
 const UNSUPPORTED_VERSION: i64 = -32022;
 const METHOD_NOT_FOUND: i64 = -32601;
@@ -24,7 +29,12 @@ struct Tool {
     schema: Value,
 }
 
-pub fn handle_mcp(engine: &WorkspaceEngine, headers: &HeaderMap, body: &[u8]) -> Response {
+pub fn handle_mcp(
+    engine: &WorkspaceEngine,
+    hub: &NotifyHub,
+    headers: &HeaderMap,
+    body: &[u8],
+) -> Response {
     if let Some(origin) = headers.get("origin").and_then(|value| value.to_str().ok()) {
         if !origin_allowed(origin) {
             return rpc_error(Value::Null, -32600, "origin not allowed", 403, None);
@@ -70,7 +80,10 @@ pub fn handle_mcp(engine: &WorkspaceEngine, headers: &HeaderMap, body: &[u8]) ->
             | "tools/call"
             | "prompts/list"
             | "prompts/get"
+            | "resources/list"
             | "resources/read"
+            | "resources/subscribe"
+            | "resources/unsubscribe"
             | "skills/list"
             | "skills/get"
     );
@@ -96,7 +109,10 @@ pub fn handle_mcp(engine: &WorkspaceEngine, headers: &HeaderMap, body: &[u8]) ->
         "tools/call" => tools_call(engine, session.as_ref(), &params),
         "prompts/list" => Ok(prompts_list()),
         "prompts/get" => prompts_get(&params),
-        "resources/read" => resources_read(&params),
+        "resources/list" => Ok(resources_list(session.as_ref())),
+        "resources/read" => resources_read(engine, session.as_ref(), &params),
+        "resources/subscribe" => resources_subscribe(hub, session.as_ref(), &params),
+        "resources/unsubscribe" => resources_unsubscribe(hub, session.as_ref(), &params),
         "skills/list" => Ok(skills_list()),
         "skills/get" => skills_get(&params),
         _ => Err(RpcError {
@@ -147,7 +163,7 @@ fn header_mismatch(headers: &HeaderMap, method: &str, params: &Value) -> Option<
     }
     let field = match method {
         "tools/call" | "prompts/get" => "name",
-        "resources/read" => "uri",
+        "resources/read" | "resources/subscribe" | "resources/unsubscribe" => "uri",
         _ => return None,
     };
     let Some(expected) = params.get(field).and_then(Value::as_str) else {
@@ -203,7 +219,7 @@ fn discover() -> Value {
         "supportedVersions": [MCP_PROTOCOL_VERSION],
         "capabilities": {
             "tools": {},
-            "resources": {},
+            "resources": {"subscribe": true},
             "prompts": {},
             "extensions": {"io.modelcontextprotocol/skills": {}}
         },
@@ -552,6 +568,128 @@ fn prompts_list() -> Value {
     })
 }
 
+fn resources_list(session: Option<&Session>) -> Value {
+    let mut resources = vec![json!({
+        "uri": SKILL_URI,
+        "name": "commonroom",
+        "mimeType": "text/markdown"
+    })];
+    if session.is_some_and(|session| has_capability(&session.capabilities, "read")) {
+        for (uri, name, mime) in workspace_resources() {
+            resources.push(json!({"uri": uri, "name": name, "mimeType": mime}));
+        }
+    }
+    json!({
+        "resultType": "complete",
+        "resources": resources,
+        "ttlMs": 0,
+        "cacheScope": "private"
+    })
+}
+
+fn resources_read(
+    engine: &WorkspaceEngine,
+    session: Option<&Session>,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
+    if uri == SKILL_URI {
+        return Ok(json!({
+            "resultType": "complete",
+            "contents": [{"uri": SKILL_URI, "mimeType": "text/markdown", "text": load_skill()}],
+            "ttlMs": 0,
+            "cacheScope": "private"
+        }));
+    }
+    let Some(session) = session else {
+        return Err(rpc(INVALID_PARAMS, "session required", 400));
+    };
+    if !has_capability(&session.capabilities, "read") {
+        return Err(rpc(APPLICATION_ERROR, "permission_denied", 403));
+    }
+    if uri.len() > 512 || !subscribable_resource(uri) {
+        return Err(rpc(INVALID_PARAMS, "unknown resource", 400));
+    }
+    match read_workspace_resource(engine, session, uri) {
+        Ok(text_and_mime) => {
+            let (mime, text) = text_and_mime;
+            Ok(json!({
+                "resultType": "complete",
+                "contents": [{"uri": uri, "mimeType": mime, "text": text}],
+                "ttlMs": 0,
+                "cacheScope": "private"
+            }))
+        }
+        Err(err) => Err(rpc(APPLICATION_ERROR, &err.message, err.http_status)),
+    }
+}
+
+fn read_workspace_resource(
+    engine: &WorkspaceEngine,
+    session: &Session,
+    uri: &str,
+) -> Result<(&'static str, String), CommonroomError> {
+    let value = match uri {
+        RESOURCE_STATUS => serde_json::to_value(redacted_status(engine, session)?)
+            .map_err(|err| ce_protocol::internal_error(err.to_string()))?,
+        RESOURCE_DOCUMENT => {
+            return Ok((
+                "text/markdown",
+                engine.read(None, None, Some(1_048_576))?.content,
+            ));
+        }
+        RESOURCE_PROPOSALS => serde_json::to_value(engine.proposals()?)
+            .map_err(|err| ce_protocol::internal_error(err.to_string()))?,
+        RESOURCE_LEASES => serde_json::to_value(engine.leases()?)
+            .map_err(|err| ce_protocol::internal_error(err.to_string()))?,
+        RESOURCE_PARTICIPANTS => serde_json::to_value(engine.participants()?)
+            .map_err(|err| ce_protocol::internal_error(err.to_string()))?,
+        _ => return Err(invalid_request("unknown resource")),
+    };
+    Ok(("application/json", value.to_string()))
+}
+
+fn redacted_status(
+    engine: &WorkspaceEngine,
+    session: &Session,
+) -> Result<ce_core::Status, CommonroomError> {
+    let mut status = engine.status()?;
+    if !has_capability(&session.capabilities, "admin") {
+        status.path = None;
+    }
+    Ok(status)
+}
+
+fn resources_subscribe(
+    hub: &NotifyHub,
+    session: Option<&Session>,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    let Some(session) = session else {
+        return Err(rpc(INVALID_PARAMS, "session required", 400));
+    };
+    let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
+    match hub.subscribe_resource(session, uri) {
+        Ok(()) => Ok(json!({"resultType": "complete"})),
+        Err(err) => Err(rpc(APPLICATION_ERROR, &err.message, err.http_status)),
+    }
+}
+
+fn resources_unsubscribe(
+    hub: &NotifyHub,
+    session: Option<&Session>,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    let Some(session) = session else {
+        return Err(rpc(INVALID_PARAMS, "session required", 400));
+    };
+    let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
+    match hub.unsubscribe_resource(session, uri) {
+        Ok(()) => Ok(json!({"resultType": "complete"})),
+        Err(err) => Err(rpc(APPLICATION_ERROR, &err.message, err.http_status)),
+    }
+}
+
 fn prompts_get(params: &Value) -> Result<Value, RpcError> {
     if params.get("name").and_then(Value::as_str) != Some("workspace_onboarding") {
         return Err(rpc(INVALID_PARAMS, "unknown prompt", 400));
@@ -562,18 +700,6 @@ fn prompts_get(params: &Value) -> Result<Value, RpcError> {
         "messages": [{"role": "user", "content": {"type": "text", "text": ONBOARDING}}],
         "ttlMs": 300_000,
         "cacheScope": "public"
-    }))
-}
-
-fn resources_read(params: &Value) -> Result<Value, RpcError> {
-    if params.get("uri").and_then(Value::as_str) != Some(SKILL_URI) {
-        return Err(rpc(INVALID_PARAMS, "unknown resource", 400));
-    }
-    Ok(json!({
-        "resultType": "complete",
-        "contents": [{"uri": SKILL_URI, "mimeType": "text/markdown", "text": load_skill()}],
-        "ttlMs": 0,
-        "cacheScope": "private"
     }))
 }
 

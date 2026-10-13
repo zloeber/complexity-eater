@@ -12,7 +12,7 @@ Local rooms and peer rooms are the product that exists. The items below are orde
 ## Next, still local
 
 3. Package `ce` for Homebrew. Tag builds already publish Linux and macOS binaries.
-4. Keep the human page as a projection of the engine. Improve it only when a workflow cannot be done with `ce` or the page today.
+4. Keep the human page as a projection of the engine. Improve it only when a workflow cannot be done with `ce` or the page today. A durable MCP task runtime is not part of the event stream.
 
 ## Self-hosted
 

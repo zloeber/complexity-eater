@@ -16,8 +16,17 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+use crate::bus::EventBus;
+use crate::events::{
+    compose_event, redact_event_payload, Event, ARTIFACT_CHANGED, INVITE_CREATED, INVITE_REVOKED,
+    LEASE_ACQUIRED, LEASE_EXPIRED, LEASE_RELEASED, PARTICIPANT_JOINED, PARTICIPANT_LEFT,
+    PROPOSAL_APPROVED, PROPOSAL_COMMITTED, PROPOSAL_CONFLICTED, PROPOSAL_CREATED,
+    PROPOSAL_REJECTED, PROPOSAL_SUPERSEDED, SESSION_CREATED, SESSION_EXPIRED, WORKSPACE_CREATED,
+    WORKSPACE_STARTED, WORKSPACE_STOPPED,
+};
 use crate::markdown::{self, Heading};
 use crate::paths::resolve_user_path;
+use crate::{EventFilter, Subscription, SUBSCRIBER_CAPACITY};
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS metadata (
@@ -243,14 +252,6 @@ pub struct DiffResult {
 }
 
 #[derive(Clone, Debug, Serialize)]
-pub struct Event {
-    pub event_id: i64,
-    pub event_type: String,
-    pub payload: Value,
-    pub created_at: String,
-}
-
-#[derive(Clone, Debug, Serialize)]
 pub struct Change {
     pub version: i64,
     pub summary: String,
@@ -375,6 +376,7 @@ struct EngineState {
     limits: Limits,
     clock: Clock,
     conn: Option<Connection>,
+    bus: EventBus,
 }
 
 pub struct WorkspaceEngine {
@@ -414,6 +416,7 @@ impl WorkspaceEngine {
             limits,
             clock: clock.unwrap_or_else(Clock::system),
             conn: Some(conn),
+            bus: EventBus::new(),
         };
         let engine = Self {
             inner: Mutex::new(state),
@@ -523,6 +526,19 @@ impl WorkspaceEngine {
     ) -> Result<Vec<Event>, CommonroomError> {
         self.lock()
             .events_since(since_event_id, since_version, limit)
+    }
+
+    pub fn oldest_event_id(&self) -> Result<Option<i64>, CommonroomError> {
+        self.lock().oldest_event_id()
+    }
+
+    pub fn subscribe(&self) -> Subscription {
+        self.subscribe_with(EventFilter::all(), SUBSCRIBER_CAPACITY)
+    }
+
+    pub fn subscribe_with(&self, filter: EventFilter, capacity: usize) -> Subscription {
+        let bus = self.lock().bus.clone();
+        bus.subscribe(filter, capacity)
     }
 
     pub fn changes_since(
@@ -827,7 +843,7 @@ impl EngineState {
                 params![1, content, sha256_hex(content.as_bytes()), "workspace created", now],
             )
             .db()?;
-        self.record("workspace.created", json!({"version": 1}))?;
+        self.record(WORKSPACE_CREATED, json!({"version": 1}))?;
         Ok(())
     }
 
@@ -838,6 +854,7 @@ impl EngineState {
     }
 
     fn record(&self, event_type: &str, mut payload: Value) -> Result<(), CommonroomError> {
+        redact_event_payload(&mut payload);
         let workspace_id = self.workspace_id()?;
         if let Some(map) = payload.as_object_mut() {
             map.insert("workspace_id".into(), Value::String(workspace_id));
@@ -850,6 +867,7 @@ impl EngineState {
                 params![event_type, body, now],
             )
             .db()?;
+        let event_id = self.conn()?.last_insert_rowid();
         self.conn()?
             .execute(
                 "DELETE FROM events WHERE event_id NOT IN (
@@ -858,6 +876,8 @@ impl EngineState {
                 params![self.limits.max_events as i64],
             )
             .db()?;
+        self.bus
+            .publish(compose_event(event_id, event_type, now, payload));
         Ok(())
     }
 
@@ -922,7 +942,7 @@ impl EngineState {
             .db()?;
         self.set_meta("current_version", &new_version.to_string())?;
         self.record(
-            "change.committed",
+            ARTIFACT_CHANGED,
             json!({
                 "version": new_version,
                 "summary": summary,
@@ -965,13 +985,13 @@ impl EngineState {
     fn mark_started(&self) -> Result<(), CommonroomError> {
         self.set_meta("lifecycle", "ACTIVE")?;
         let version = self.current_version()?;
-        self.record("workspace.started", json!({"version": version}))?;
+        self.record(WORKSPACE_STARTED, json!({"version": version}))?;
         Ok(())
     }
 
     fn mark_stopped(&self) -> Result<(), CommonroomError> {
         let version = self.current_version()?;
-        self.record("workspace.stopped", json!({"version": version}))?;
+        self.record(WORKSPACE_STOPPED, json!({"version": version}))?;
         Ok(())
     }
 
@@ -1166,6 +1186,13 @@ impl EngineState {
             .collect())
     }
 
+    fn oldest_event_id(&self) -> Result<Option<i64>, CommonroomError> {
+        self.conn()?
+            .query_row("SELECT MIN(event_id) FROM events", [], |row| row.get(0))
+            .optional()
+            .db()
+    }
+
     fn changes_since(
         &self,
         version: i64,
@@ -1295,7 +1322,7 @@ impl EngineState {
             )
             .db()?;
         self.record(
-            "session.created",
+            SESSION_CREATED,
             json!({
                 "participant_id": participant_id,
                 "transport": transport,
@@ -1342,7 +1369,7 @@ impl EngineState {
                 )
                 .db()?;
             self.record(
-                "participant.joined",
+                PARTICIPANT_JOINED,
                 json!({
                     "participant_id": participant_id,
                     "kind": "human",
@@ -1400,7 +1427,7 @@ impl EngineState {
             )
             .db()?;
         self.record(
-            "participant.joined",
+            PARTICIPANT_JOINED,
             json!({
                 "participant_id": participant_id,
                 "kind": kind,
@@ -1468,7 +1495,7 @@ impl EngineState {
                     params![now, session_id],
                 )
                 .db()?;
-            self.record("session.expired", json!({"participant_id": participant_id}))?;
+            self.record(SESSION_EXPIRED, json!({"participant_id": participant_id}))?;
             return Err(session_expired());
         }
         let now = self.now_text();
@@ -1526,19 +1553,23 @@ impl EngineState {
                     params![stamp, session_id],
                 )
                 .db()?;
-            self.record("session.expired", json!({"participant_id": participant_id}))?;
+            self.record(SESSION_EXPIRED, json!({"participant_id": participant_id}))?;
         }
         Ok(())
     }
 
     fn leave(&self, participant_id: &str) -> Result<(), CommonroomError> {
         let now = self.now_text();
-        self.conn()?
+        let updated = self
+            .conn()?
             .execute(
                 "UPDATE participants SET left_at = ?1 WHERE participant_id = ?2 AND left_at IS NULL",
                 params![now, participant_id],
             )
             .db()?;
+        if updated == 0 {
+            return Ok(());
+        }
         self.conn()?
             .execute(
                 "UPDATE sessions SET ended_at = ?1 WHERE participant_id = ?2 AND ended_at IS NULL",
@@ -1553,10 +1584,7 @@ impl EngineState {
         for lease_id in leases {
             self.release(&lease_id, None, false)?;
         }
-        self.record(
-            "participant.left",
-            json!({"participant_id": participant_id}),
-        )?;
+        self.record(PARTICIPANT_LEFT, json!({"participant_id": participant_id}))?;
         Ok(())
     }
 
@@ -1580,7 +1608,7 @@ impl EngineState {
                 )
                 .db()?;
             self.record(
-                "lease.expired",
+                LEASE_EXPIRED,
                 json!({"lease_id": lease_id, "participant_id": participant_id, "target": target}),
             )?;
         }
@@ -1673,7 +1701,7 @@ impl EngineState {
             )
             .db()?;
         self.record(
-            "lease.acquired",
+            LEASE_ACQUIRED,
             json!({
                 "lease_id": lease_id,
                 "participant_id": participant_id,
@@ -1755,7 +1783,7 @@ impl EngineState {
             )
             .db()?;
         self.record(
-            "lease.acquired",
+            LEASE_ACQUIRED,
             json!({
                 "lease_id": lease_id,
                 "participant_id": participant_id,
@@ -1807,7 +1835,7 @@ impl EngineState {
             )
             .db()?;
         self.record(
-            "lease.released",
+            LEASE_RELEASED,
             json!({"lease_id": lease_id, "participant_id": holder}),
         )?;
         Ok(())
@@ -1903,7 +1931,7 @@ impl EngineState {
             )
             .db()?;
         self.record(
-            "proposal.created",
+            PROPOSAL_CREATED,
             json!({
                 "proposal_id": proposal_id,
                 "workspace_id": self.workspace_id()?,
@@ -1966,6 +1994,11 @@ impl EngineState {
             );
         }
         let status = if approve { "approved" } else { "rejected" };
+        let event_type = if approve {
+            PROPOSAL_APPROVED
+        } else {
+            PROPOSAL_REJECTED
+        };
         let now = self.now_text();
         self.conn()?
             .execute(
@@ -1974,7 +2007,7 @@ impl EngineState {
             )
             .db()?;
         self.record(
-            &format!("proposal.{status}"),
+            event_type,
             json!({"proposal_id": proposal_id, "reviewer_id": reviewer_id, "status": status}),
         )?;
         Ok(ReviewResult {
@@ -2041,7 +2074,7 @@ impl EngineState {
             )
             .db()?;
         for proposal_id in ids {
-            self.record("proposal.superseded", json!({"proposal_id": proposal_id}))?;
+            self.record(PROPOSAL_SUPERSEDED, json!({"proposal_id": proposal_id}))?;
         }
         Ok(())
     }
@@ -2128,7 +2161,7 @@ impl EngineState {
                         params![proposal_id],
                     )
                     .db()?;
-                self.record("proposal.conflicted", json!({"proposal_id": proposal_id}))?;
+                self.record(PROPOSAL_CONFLICTED, json!({"proposal_id": proposal_id}))?;
                 return Err(err);
             }
             Err(err) => return Err(err),
@@ -2140,7 +2173,7 @@ impl EngineState {
             )
             .db()?;
         self.record(
-            "proposal.committed",
+            PROPOSAL_COMMITTED,
             json!({"proposal_id": proposal_id, "version": payload.version}),
         )?;
         Ok(payload)
@@ -2233,7 +2266,7 @@ impl EngineState {
             "capabilities": granted,
         }))?;
         self.record(
-            "invite.created",
+            INVITE_CREATED,
             json!({
                 "invite_id": invite_id,
                 "capabilities": granted,
@@ -2335,8 +2368,8 @@ impl EngineState {
                     params![now, row.token],
                 )
                 .db()?;
+            self.record(INVITE_REVOKED, json!({"invite_id": row.invite_id}))?;
         }
-        self.record("invite.revoked", json!({"invite_id": row.invite_id}))?;
         let invite_key = row.invite_id.clone();
         let sessions: Vec<String> = self.map_rows(
             "SELECT DISTINCT participant_id FROM sessions WHERE invite_id = ?1 AND ended_at IS NULL",
@@ -2495,12 +2528,15 @@ fn invite_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<InviteRow> {
 
 fn event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
     let payload: String = row.get(2)?;
-    Ok(Event {
-        event_id: row.get(0)?,
-        event_type: row.get(1)?,
-        payload: serde_json::from_str(&payload).unwrap_or(Value::Null),
-        created_at: row.get(3)?,
-    })
+    let created_at: String = row.get(3)?;
+    let event_type: String = row.get(1)?;
+    let event_id: i64 = row.get(0)?;
+    Ok(compose_event(
+        event_id,
+        event_type,
+        created_at,
+        serde_json::from_str(&payload).unwrap_or(Value::Null),
+    ))
 }
 
 fn regions_from(headings: &[Heading]) -> Vec<Region> {
@@ -2846,5 +2882,289 @@ mod tests {
         assert!(!text.contains("secret-endpoint"));
         assert_eq!(diagnostics.listener["type"], "loopback");
         assert_eq!(diagnostics.listener["encrypted"], true);
+    }
+
+    #[test]
+    fn a_successful_proposal_is_published_and_a_denied_one_is_not() {
+        let (_dir, engine) = engine("# Architecture\ninitial\n");
+        let writer = engine
+            .join(
+                "agent",
+                "writer",
+                Some(vec!["propose".into(), "read".into()]),
+                None,
+                "local",
+                None,
+            )
+            .unwrap();
+        let reader = engine
+            .join(
+                "agent",
+                "reader",
+                Some(vec!["read".into()]),
+                None,
+                "local",
+                None,
+            )
+            .unwrap();
+        let sub = engine.subscribe_with(crate::EventFilter::only(&[PROPOSAL_CREATED]), 8);
+        let err = engine
+            .propose(
+                &reader.participant_id,
+                "workspace",
+                1,
+                "nope",
+                json!({"content": "secret-body"}),
+                Some(&reader),
+            )
+            .unwrap_err();
+        assert_eq!(err.code, "permission_denied");
+        assert!(sub
+            .recv_timeout(std::time::Duration::from_millis(50))
+            .is_err());
+        let proposal = engine
+            .propose(
+                &writer.participant_id,
+                "workspace",
+                1,
+                "sharpen",
+                json!({"content": "secret-body-should-not-leak"}),
+                Some(&writer),
+            )
+            .unwrap();
+        match sub.recv_timeout(std::time::Duration::from_secs(1)).unwrap() {
+            crate::Delivery::Event(event) => {
+                assert_eq!(event.event_type, PROPOSAL_CREATED);
+                assert_eq!(event.schema_version, crate::EVENT_SCHEMA_VERSION);
+                assert_eq!(
+                    event.actor_id.as_deref(),
+                    Some(writer.participant_id.as_str())
+                );
+                assert_eq!(event.payload["proposal_id"], proposal.proposal_id);
+                let blob = serde_json::to_string(&event).unwrap();
+                assert!(!blob.contains("secret-body"));
+                assert!(!blob.contains("ses_"));
+            }
+            crate::Delivery::Lagged => panic!("unexpected lag"),
+        }
+    }
+
+    #[test]
+    fn a_failed_commit_does_not_publish_an_artifact_change() {
+        let (_dir, engine) = engine("# Architecture\ninitial\n");
+        let agent = engine
+            .join("agent", "writer", None, None, "local", None)
+            .unwrap();
+        engine
+            .commit(
+                &agent.participant_id,
+                1,
+                "first",
+                "# Architecture\none\n",
+                "workspace",
+                None,
+            )
+            .unwrap();
+        let before = engine
+            .history(50, None)
+            .unwrap()
+            .iter()
+            .filter(|event| event.event_type == ARTIFACT_CHANGED)
+            .count();
+        let err = engine
+            .commit(
+                &agent.participant_id,
+                1,
+                "stale",
+                "# Architecture\ntwo\n",
+                "workspace",
+                None,
+            )
+            .unwrap_err();
+        assert_eq!(err.code, "stale_version");
+        let after = engine
+            .history(50, None)
+            .unwrap()
+            .iter()
+            .filter(|event| event.event_type == ARTIFACT_CHANGED)
+            .count();
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn releasing_a_lease_twice_publishes_one_release() {
+        let (_dir, engine) = engine("# Architecture\ninitial\n");
+        let agent = engine
+            .join("agent", "writer", None, None, "local", None)
+            .unwrap();
+        let lease = engine
+            .checkout(&agent.participant_id, "section:Architecture", None, None)
+            .unwrap();
+        engine
+            .release(&lease.lease_id, Some(&agent.participant_id), false)
+            .unwrap();
+        engine
+            .release(&lease.lease_id, Some(&agent.participant_id), false)
+            .unwrap();
+        let releases = engine
+            .history(50, None)
+            .unwrap()
+            .iter()
+            .filter(|event| event.event_type == LEASE_RELEASED)
+            .count();
+        assert_eq!(releases, 1);
+    }
+
+    #[test]
+    fn conflicted_proposal_records_the_conflict_and_not_a_commit() {
+        let (_dir, engine) = engine("# Architecture\ninitial\n");
+        let agent = engine
+            .join("agent", "writer", None, None, "local", None)
+            .unwrap();
+        let human = engine
+            .join("human", "reviewer", None, None, "local", None)
+            .unwrap();
+        let proposal = engine
+            .propose(
+                &agent.participant_id,
+                "workspace",
+                1,
+                "edit",
+                json!({"content": "# Architecture\nproposed\n"}),
+                None,
+            )
+            .unwrap();
+        engine
+            .review_proposal(&proposal.proposal_id, &human.participant_id, true, None)
+            .unwrap();
+        engine
+            .commit(
+                &human.participant_id,
+                1,
+                "other",
+                "# Architecture\nlanded\n",
+                "workspace",
+                None,
+            )
+            .unwrap();
+        let err = engine
+            .commit_proposal(&proposal.proposal_id, &agent.participant_id, None)
+            .unwrap_err();
+        assert_eq!(err.code, "stale_version");
+        let history = engine.history(50, None).unwrap();
+        assert!(history
+            .iter()
+            .any(|event| event.event_type == PROPOSAL_CONFLICTED));
+        assert!(!history.iter().any(|event| {
+            event.event_type == PROPOSAL_COMMITTED
+                && event.payload["proposal_id"] == proposal.proposal_id
+        }));
+        assert!(history
+            .iter()
+            .all(|event| crate::is_known_event_type(&event.event_type)));
+        let blob = format!("{history:?}");
+        assert!(!blob.contains("proposed"));
+    }
+
+    #[test]
+    fn concurrent_commits_keep_a_single_version_order() {
+        let (_dir, engine) = engine("# Architecture\ninitial\n");
+        let engine = std::sync::Arc::new(engine);
+        let mut handles = Vec::new();
+        for index in 0..4 {
+            let engine = std::sync::Arc::clone(&engine);
+            handles.push(std::thread::spawn(move || {
+                let agent = engine
+                    .join(
+                        "agent",
+                        &format!("writer-{index}"),
+                        None,
+                        None,
+                        "local",
+                        None,
+                    )
+                    .unwrap();
+                engine.commit(
+                    &agent.participant_id,
+                    1,
+                    &format!("edit {index}"),
+                    &format!("# Architecture\nedit {index}\n"),
+                    "workspace",
+                    None,
+                )
+            }));
+        }
+        let results: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        let wins = results.iter().filter(|result| result.is_ok()).count();
+        assert_eq!(wins, 1);
+        assert_eq!(engine.status().unwrap().version, 2);
+        let changes: Vec<_> = engine
+            .history(50, None)
+            .unwrap()
+            .into_iter()
+            .filter(|event| event.event_type == ARTIFACT_CHANGED)
+            .collect();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].version, Some(2));
+    }
+
+    #[test]
+    fn an_expired_session_records_expiry_without_the_session_id() {
+        let stamp = std::sync::Arc::new(std::sync::Mutex::new(chrono::Utc::now()));
+        let clock_stamp = std::sync::Arc::clone(&stamp);
+        let clock = Clock(std::sync::Arc::new(move || *clock_stamp.lock().unwrap()));
+        let dir = std::env::temp_dir().join(format!("ce-engine-clock-{}", token_hex(6)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("workspace.md");
+        std::fs::write(&path, "# Architecture\n").unwrap();
+        let engine = WorkspaceEngine::open(&path, None, Limits::default(), Some(clock)).unwrap();
+        let session = engine
+            .join("agent", "short", None, None, "local", Some(1))
+            .unwrap();
+        *stamp.lock().unwrap() += chrono::Duration::minutes(2);
+        let err = engine.authenticate(&session.session_id).unwrap_err();
+        assert_eq!(err.code, "unauthorized");
+        let expired = engine
+            .history(20, None)
+            .unwrap()
+            .into_iter()
+            .find(|event| event.event_type == SESSION_EXPIRED)
+            .unwrap();
+        let blob = serde_json::to_string(&expired).unwrap();
+        assert!(!blob.contains(&session.session_id));
+        assert_eq!(
+            expired.actor_id.as_deref(),
+            Some(session.participant_id.as_str())
+        );
+        let err = engine.authenticate(&session.session_id).unwrap_err();
+        assert_eq!(err.code, "unauthorized");
+        let expiries = engine
+            .history(20, None)
+            .unwrap()
+            .iter()
+            .filter(|event| event.event_type == SESSION_EXPIRED)
+            .count();
+        assert_eq!(expiries, 1);
+        drop(engine);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn subscribers_on_one_engine_do_not_see_another_workspace() {
+        let (_dir_a, engine_a) = engine("# Architecture\nA\n");
+        let (_dir_b, engine_b) = engine("# Architecture\nB\n");
+        let sub = engine_a.subscribe();
+        let agent = engine_b
+            .join("agent", "b", None, None, "local", None)
+            .unwrap();
+        engine_b
+            .checkout(&agent.participant_id, "section:Architecture", None, None)
+            .unwrap();
+        assert!(sub
+            .recv_timeout(std::time::Duration::from_millis(80))
+            .is_err());
     }
 }

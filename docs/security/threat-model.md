@@ -23,7 +23,9 @@ Committing a proposal requires `commit` and an approved proposal. Review require
 
 ## What the transport is allowed to know
 
-The plugin sees its own endpoint because it has to dial. Diagnostics, events, and MCP discovery do not echo that address, the invitation secret, or the session id. Logs from the HTTP adapter record the path, the status code, and the duration. They do not record the `Authorization` header or the body.
+The plugin sees its own endpoint because it has to dial. Diagnostics, events, and MCP discovery do not echo that address, the invitation secret, or the session id. Event payloads also omit document bodies and proposal change bodies. Logs from the HTTP adapter record the path, the status code, and the duration. They do not record the `Authorization` header or the body.
+
+An event stream and a resource-update notification are not writes. They cannot approve, commit, or invite. A cursor or a resource URI does not authenticate the caller. The session does, and it is checked again while the stream is open. One room's engine does not publish into another's subscribers.
 
 Tailcat is a subprocess. This binary does not implement Tailcat's cryptography. A missing or crashed `tailcat` process is `transport_unavailable`. It is not a fallback to an open listener.
 
@@ -35,6 +37,8 @@ Tailcat is a subprocess. This binary does not implement Tailcat's cryptography. 
 * An agent raw commit and an agent review, both denied.
 * A reader path hidden from non-admin status.
 * Transport address stripped from diagnostics, history, banners, and MCP discovery.
+* Event payloads omit invitation secrets, session ids, and proposal bodies.
+* Observe and MCP subscriptions stay inside the authenticated room.
 * A non-loopback bind refused.
 * Core crates forbidden from naming transport vendors.
 * Session files written with mode `0600` under a `0700` directory on Unix.

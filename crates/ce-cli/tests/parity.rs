@@ -1,6 +1,7 @@
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -17,9 +18,11 @@ impl Drop for TempDir {
 }
 
 fn scratch(content: &str) -> (TempDir, PathBuf) {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
     let dir = std::env::temp_dir().join(format!(
-        "ce-cli-{}-{}",
+        "ce-cli-{}-{}-{}",
         std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -426,4 +429,94 @@ fn serve_prints_a_ready_snapshot_without_the_ingress_address() {
         .args(["-TERM", &child.id().to_string()])
         .status();
     let _ = child.wait();
+}
+
+#[tokio::test]
+async fn dialer_forwards_a_resource_update_notification() {
+    let (_dir, path) = scratch("# Architecture\n\n## Goals\n\nship\n");
+    let engine = Arc::new(WorkspaceEngine::open(&path, None, Limits::default(), None).unwrap());
+    let room = start_room(Arc::clone(&engine), "127.0.0.1", 0, "Ada", None)
+        .await
+        .expect("room");
+    let state = _dir.0.join("state");
+    let uri = room.invite.uri.clone();
+    let token = room.invite.token.clone();
+    let host_id = room.host_session.participant_id.clone();
+    let host = room.host_session.clone();
+    let engine_for_block = Arc::clone(&engine);
+    let result = tokio::task::spawn_blocking(move || {
+        let mut child = Command::new(bin())
+            .args(["mcp", "--invite", &uri, "--name", "Notifier"])
+            .env("XDG_STATE_HOME", &state)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn mcp");
+        let mut stdin = child.stdin.take().unwrap();
+        let mut stderr = child.stderr.take().unwrap();
+        let stderr_task = std::thread::spawn(move || {
+            let mut text = String::new();
+            let _ = stderr.read_to_string(&mut text);
+            text
+        });
+        let subscribe = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "resources/subscribe",
+            "params": {"uri": "commonroom://workspace/proposals"}
+        });
+        writeln!(stdin, "{subscribe}").unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                let Ok(line) = line else { break };
+                if tx.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        let start = Instant::now();
+        let mut saw_note = false;
+        let mut proposed = false;
+        let mut lines = Vec::new();
+        while start.elapsed() < Duration::from_secs(8) {
+            let Ok(line) = rx.recv_timeout(Duration::from_millis(200)) else {
+                continue;
+            };
+            assert!(!line.contains(&token), "{line}");
+            lines.push(line.clone());
+            if !proposed && line.contains("\"result\"") {
+                proposed = true;
+                engine_for_block
+                    .propose(
+                        &host_id,
+                        "section:Goals",
+                        1,
+                        "from host",
+                        json!({"section": "Goals", "content": "## Goals\n\nsecret-from-host\n"}),
+                        Some(&host),
+                    )
+                    .unwrap();
+            }
+            if line.contains("notifications/resources/updated") {
+                assert!(line.contains("commonroom://workspace/proposals"), "{line}");
+                assert!(!line.contains("secret-from-host"), "{line}");
+                saw_note = true;
+                break;
+            }
+        }
+        drop(stdin);
+        let _ = child.wait();
+        let stderr = stderr_task.join().unwrap_or_default();
+        (saw_note, lines, stderr)
+    })
+    .await
+    .unwrap();
+    assert!(
+        result.0,
+        "missing notification: {:?}\nstderr: {}",
+        result.1, result.2
+    );
 }

@@ -103,6 +103,8 @@ Do this. Do not read the whole artifact and write it back.
 
 `workspace.observe` and `workspace.history` tell you what the room did while you waited. `workspace.diagnostics` tells you which transport plugin is listening. It does not reveal the endpoint.
 
+If this host offers `resources.subscribe`, subscribe to `commonroom://workspace/proposals` or `commonroom://workspace/document` and treat `notifications/resources/updated` as a hint to read that resource again. The notification is not the document and it is not approval. If you cannot subscribe, keep using the tools. After a disconnect, read the resource or call `workspace_history`.
+
 ## Regions
 
 Markdown regions are heading paths such as `Architecture` or `Architecture/Goals`. Checkout `section:Architecture`. Read that section instead of the file.

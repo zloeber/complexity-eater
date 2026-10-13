@@ -45,7 +45,7 @@
       <h1 id="workspace-name">Complexity Eater</h1>
       <button id="theme" type="button">Dark mode</button>
     </div>
-    <p>Version <strong id="version">Loading</strong> · <span id="lifecycle"></span></p>
+    <p>Version <strong id="version">Loading</strong> · <span id="lifecycle"></span> · <span id="updates">connecting</span></p>
     <p id="notice" class="meta"></p>
   </header>
   <section>
@@ -54,6 +54,7 @@
   </section>
   <section>
     <h2>Participants</h2>
+    <p class="meta">Members who have not left. This is not a live presence list.</p>
     <ul id="participants"></ul>
   </section>
   <section>
@@ -98,7 +99,15 @@ themeButton.addEventListener("click", () => {
 });
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paintTheme);
 paintTheme();
-let rendered = "";
+let lastEventId = 0;
+let appliedEventId = 0;
+let seenVersion = null;
+let localAction = false;
+let source = null;
+let fallbackTimer = null;
+let failures = 0;
+let refreshTimer = null;
+const refreshScopes = new Set();
 function text(id, value) { document.getElementById(id).textContent = value; }
 function empty(node, message) {
   node.replaceChildren();
@@ -112,30 +121,44 @@ async function call(path, options) {
   if (!response.ok) throw new Error(body.message || body.error || response.statusText);
   return body;
 }
+function setUpdates(label) { text("updates", label); }
+function startFallback() {
+  if (fallbackTimer) return;
+  fallbackTimer = setInterval(() => { load(new Set(["all"])).catch(() => {}); }, 30000);
+}
+function stopFallback() {
+  if (!fallbackTimer) return;
+  clearInterval(fallbackTimer);
+  fallbackTimer = null;
+}
 async function review(id, approve) {
   notice.textContent = "";
+  localAction = true;
   try {
     await call("/workspace/proposal/review", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({proposal_id: id, approve}),
     });
-    await load();
+    await load(new Set(["all"]));
   } catch (error) {
     notice.textContent = error.message;
+    localAction = false;
   }
 }
 async function commitProposal(id) {
   notice.textContent = "";
+  localAction = true;
   try {
     await call("/workspace/commit", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({proposal_id: id}),
     });
-    await load();
+    await load(new Set(["all"]));
   } catch (error) {
     notice.textContent = error.message;
+    localAction = false;
   }
 }
 function renderProposals(proposals) {
@@ -178,17 +201,7 @@ function renderProposals(proposals) {
     root.append(card);
   }
 }
-async function load() {
-  const room = await call("/workspace/room");
-  const fingerprint = JSON.stringify(room);
-  if (fingerprint === rendered) return;
-  rendered = fingerprint;
-  text("workspace-name", room.status.name || "Complexity Eater");
-  text("version", String(room.status.version));
-  text("lifecycle", room.status.lifecycle || "");
-  const listener = room.diagnostics.listener || {};
-  const encrypted = listener.encrypted ? "encrypted" : "not encrypted";
-  text("connection", (listener.type || "local") + " · " + (listener.mode || "local") + " · " + encrypted);
+function renderPeople(room) {
   const people = document.getElementById("participants");
   if (!room.participants.length) empty(people, "No one else is here.");
   else {
@@ -207,6 +220,8 @@ async function load() {
       people.append(item);
     }
   }
+}
+function renderLeases(room) {
   const leases = document.getElementById("leases");
   if (!room.leases.length) empty(leases, "No active leases.");
   else {
@@ -217,7 +232,8 @@ async function load() {
       leases.append(item);
     }
   }
-  renderProposals(room.proposals);
+}
+function renderOutline(room) {
   const outline = document.getElementById("outline");
   const headings = room.summary.outline || [];
   if (!headings.length) empty(outline, "No headings yet.");
@@ -229,6 +245,8 @@ async function load() {
       outline.append(item);
     }
   }
+}
+function renderEvents(room) {
   const events = document.getElementById("events");
   events.replaceChildren();
   for (const event of room.events) {
@@ -236,6 +254,88 @@ async function load() {
     item.textContent = event.event_type + " · " + event.created_at;
     events.append(item);
   }
+  if (room.events.length && room.events[0].event_id > lastEventId) {
+    lastEventId = room.events[0].event_id;
+  }
+}
+let loadGen = 0;
+async function load(scopes) {
+  const gen = ++loadGen;
+  const room = await call("/workspace/room");
+  if (gen !== loadGen) return;
+  const everything = !scopes || scopes.has("all");
+  text("workspace-name", room.status.name || "Complexity Eater");
+  if (seenVersion !== null && room.status.version !== seenVersion && !localAction) {
+    notice.textContent = "Workspace is now version " + room.status.version + ".";
+  }
+  seenVersion = room.status.version;
+  localAction = false;
+  text("version", String(room.status.version));
+  text("lifecycle", room.status.lifecycle || "");
+  const listener = room.diagnostics.listener || {};
+  const encrypted = listener.encrypted ? "encrypted" : "not encrypted";
+  text("connection", (listener.type || "local") + " · " + (listener.mode || "local") + " · " + encrypted);
+  if (everything || scopes.has("participants")) renderPeople(room);
+  if (everything || scopes.has("leases")) renderLeases(room);
+  if (everything || scopes.has("proposals")) renderProposals(room.proposals);
+  if (everything || scopes.has("document")) renderOutline(room);
+  renderEvents(room);
+}
+function scopeFor(event) {
+  const type = event.event_type || "";
+  if (type.indexOf("proposal.") === 0) return "proposals";
+  if (type === "change.committed" || type === "workspace.created") return "document";
+  if (type.indexOf("lease.") === 0) return "leases";
+  if (type.indexOf("participant.") === 0 || type.indexOf("session.") === 0) return "participants";
+  return "all";
+}
+function editing() {
+  const active = document.activeElement;
+  return active && active.tagName === "BUTTON" && active.id !== "theme" && active.id !== "create-invite";
+}
+function schedule(scope) {
+  if (scope === "all") {
+    refreshScopes.clear();
+    refreshScopes.add("all");
+  } else if (!refreshScopes.has("all")) {
+    refreshScopes.add(scope);
+  }
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => {
+    if (editing()) {
+      schedule(scope);
+      return;
+    }
+    const next = new Set(refreshScopes);
+    refreshScopes.clear();
+    load(next).catch((error) => { notice.textContent = error.message; });
+  }, 80);
+}
+function connectStream() {
+  if (source) source.close();
+  source = new EventSource("/workspace/observe?since_event_id=" + lastEventId);
+  source.onopen = () => {
+    failures = 0;
+    setUpdates("live");
+    stopFallback();
+  };
+  source.onerror = () => {
+    failures += 1;
+    setUpdates(failures > 2 ? "offline" : "reconnecting");
+    startFallback();
+  };
+  source.addEventListener("resync", () => schedule("all"));
+  source.onmessage = (message) => {
+    let event = {};
+    try { event = JSON.parse(message.data); }
+    catch (error) { schedule("all"); return; }
+    const id = Number(event.event_id || message.lastEventId || 0);
+    if (!id || id <= appliedEventId) return;
+    if (appliedEventId && id > appliedEventId + 1) schedule("all");
+    appliedEventId = id;
+    if (id > lastEventId) lastEventId = id;
+    schedule(scopeFor(event));
+  };
 }
 function pasteMessage(uri) {
   return "Add this local MCP server, then use its Complexity Eater tools:\n\n"
@@ -253,8 +353,8 @@ async function removeParticipant(participantId) {
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({participant_id: participantId}),
     });
-    rendered = "";
-    await load();
+    notice.textContent = "";
+    await load(new Set(["all"]));
   } catch (error) {
     notice.textContent = error.message;
   }
@@ -273,8 +373,7 @@ document.getElementById("create-invite").addEventListener("click", async () => {
     notice.textContent = error.message;
   }
 });
-load().catch((error) => { notice.textContent = error.message; });
-setInterval(() => load().catch(() => {}), 3000);
+load(new Set(["all"])).then(connectStream).catch((error) => { notice.textContent = error.message; connectStream(); });
 </script>
 </body>
 </html>
