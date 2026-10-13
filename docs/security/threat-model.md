@@ -39,6 +39,9 @@ Tailcat is a subprocess. This binary does not implement Tailcat's cryptography. 
 * Transport address stripped from diagnostics, history, banners, and MCP discovery.
 * Event payloads omit invitation secrets, session ids, and proposal bodies.
 * Observe and MCP subscriptions stay inside the authenticated room.
+* A task id is not a credential. `tasks/get` and `tasks/cancel` require the owner, the assignee, or `admin`. A stranger and a missing id return the same error.
+* Task notifications go only to a listen stream that named that task and whose session can read it. A session from another sidecar is not a member of this one.
+* Handoff and task event payloads omit result text, prompts, and input responses. The handoff row keeps the result for participants who can read the room.
 * A non-loopback bind refused.
 * Core crates forbidden from naming transport vendors.
 * Session files written with mode `0600` under a `0700` directory on Unix.

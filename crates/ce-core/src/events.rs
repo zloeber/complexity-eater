@@ -31,6 +31,14 @@ pub const LEASE_RELEASED: &str = "lease.released";
 pub const LEASE_EXPIRED: &str = "lease.expired";
 pub const INVITE_CREATED: &str = "invite.created";
 pub const INVITE_REVOKED: &str = "invite.revoked";
+pub const HANDOFF_CREATED: &str = "handoff.created";
+pub const HANDOFF_ACCEPTED: &str = "handoff.accepted";
+pub const HANDOFF_RESULT_READY: &str = "handoff.result_ready";
+pub const HANDOFF_APPROVED: &str = "handoff.approved";
+pub const HANDOFF_REJECTED: &str = "handoff.rejected";
+pub const HANDOFF_CANCELLED: &str = "handoff.cancelled";
+pub const TASK_CREATED: &str = "task.created";
+pub const TASK_UPDATED: &str = "task.updated";
 
 pub const KNOWN_EVENT_TYPES: &[&str] = &[
     WORKSPACE_CREATED,
@@ -52,6 +60,14 @@ pub const KNOWN_EVENT_TYPES: &[&str] = &[
     LEASE_EXPIRED,
     INVITE_CREATED,
     INVITE_REVOKED,
+    HANDOFF_CREATED,
+    HANDOFF_ACCEPTED,
+    HANDOFF_RESULT_READY,
+    HANDOFF_APPROVED,
+    HANDOFF_REJECTED,
+    HANDOFF_CANCELLED,
+    TASK_CREATED,
+    TASK_UPDATED,
 ];
 
 const SECRET_KEYS: &[&str] = &[

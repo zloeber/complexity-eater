@@ -70,6 +70,15 @@ pub fn create_router(
         .route("/workspace/participants", get(participants))
         .route("/workspace/leases", get(leases))
         .route("/workspace/proposals", get(proposals))
+        .route("/workspace/handoffs", get(handoffs))
+        .route("/workspace/handoff", get(handoff))
+        .route("/workspace/handoff/events", get(handoff_events))
+        .route("/workspace/task", get(task_status))
+        .route("/workspace/handoff/create", post(handoff_create))
+        .route("/workspace/handoff/accept", post(handoff_accept))
+        .route("/workspace/handoff/complete", post(handoff_complete))
+        .route("/workspace/handoff/approve", post(handoff_approve))
+        .route("/workspace/task/cancel", post(task_cancel))
         .route("/workspace/diagnostics", get(diagnostics))
         .route("/workspace/room", get(room))
         .route("/workspace/checkout", post(checkout))
@@ -453,6 +462,168 @@ async fn proposals(
     let session = principal(&state, &headers, "anon")?;
     state.engine.require(&session, "read")?;
     json_ok(state.engine.proposals()?)
+}
+
+#[derive(Deserialize, Default)]
+struct HandoffQuery {
+    handoff_id: Option<String>,
+    task_id: Option<String>,
+}
+
+async fn handoffs(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    state.engine.require(&session, "read")?;
+    json_ok(state.engine.list_handoffs()?)
+}
+
+async fn handoff(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<HandoffQuery>,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    state.engine.require(&session, "read")?;
+    let id = query
+        .handoff_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| invalid_request("handoff_id is required"))?;
+    json_ok(state.engine.get_handoff(id)?)
+}
+
+async fn handoff_events(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<HandoffQuery>,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    state.engine.require(&session, "read")?;
+    let id = query
+        .handoff_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| invalid_request("handoff_id is required"))?;
+    json_ok(json!({"events": state.engine.handoff_events(id)?}))
+}
+
+async fn task_status(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<HandoffQuery>,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    let id = query
+        .task_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| invalid_request("task_id is required"))?;
+    json_ok(state.engine.get_task(&session.participant_id, id)?)
+}
+
+async fn handoff_create(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    state.engine.require(&session, "propose")?;
+    let payload = object(&body)?;
+    let refs = payload
+        .get("artifact_refs")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    json_ok(
+        state.engine.create_handoff(
+            &session.participant_id,
+            ce_core::NewHandoff {
+                summary: payload.get("summary").and_then(Value::as_str).unwrap_or(""),
+                constraints: payload
+                    .get("constraints")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+                artifact_refs: &refs,
+                idempotency_key: payload.get("idempotency_key").and_then(Value::as_str),
+                correlation_id: payload.get("correlation_id").and_then(Value::as_str),
+            },
+        )?,
+    )
+}
+
+async fn handoff_accept(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    state.engine.require(&session, "commit")?;
+    let payload = object(&body)?;
+    let id = payload
+        .get("handoff_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid_request("handoff_id is required"))?;
+    json_ok(state.engine.accept_handoff(&session.participant_id, id)?)
+}
+
+async fn handoff_complete(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    state.engine.require(&session, "commit")?;
+    let payload = object(&body)?;
+    let id = payload
+        .get("handoff_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid_request("handoff_id is required"))?;
+    let result = payload
+        .get("result")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid_request("result is required"))?;
+    json_ok(
+        state
+            .engine
+            .complete_handoff(&session.participant_id, id, result)?,
+    )
+}
+
+async fn handoff_approve(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    state.engine.require(&session, "approve")?;
+    let payload = object(&body)?;
+    let id = payload
+        .get("handoff_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid_request("handoff_id is required"))?;
+    json_ok(state.engine.approve_handoff(&session.participant_id, id)?)
+}
+
+async fn task_cancel(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    let payload = object(&body)?;
+    let id = payload
+        .get("task_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid_request("task_id is required"))?;
+    json_ok(state.engine.cancel_task(&session.participant_id, id)?)
 }
 
 async fn diagnostics(

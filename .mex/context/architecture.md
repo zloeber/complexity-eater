@@ -8,6 +8,8 @@ edges:
     condition: when verifying runtime and dependency choices
   - target: conventions.md
     condition: when validating project structure or review expectations
+  - target: ../patterns/handoff-tasks.md
+    condition: when changing handoffs, MCP tasks, or listen subscriptions
 last_updated: 2026-10-12
 ---
 
@@ -25,7 +27,7 @@ last_updated: 2026-10-12
 2. `ce-cli` creates or joins a workspace and calls into `WorkspaceEngine` for reads, writes, proposals, and approvals.
 3. HTTP handlers in `ce-http` authenticate a bearer token or `commonroom_session` cookie, then delegate to the same engine methods used by MCP.
 4. Proposals are stored in SQLite with a base version, then reviewed and committed only after authorization.
-5. Successful mutations append an event in the sidecar and fan out to browser SSE and MCP resource subscribers; the stream may resync if a cursor is lost or the consumer falls behind.
+5. Successful mutations append an event in the sidecar and fan out to browser SSE and MCP subscribers. Handoff and task writes commit the event in the same SQLite transaction. A listen stream may drop; clients recover with `tasks/get` or the handoff record.
 6. The markdown file remains the authoritative artifact; external edits are treated as newer versions and can conflict with stale proposals.
 
 ## External boundaries

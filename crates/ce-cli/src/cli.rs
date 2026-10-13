@@ -26,6 +26,11 @@ const COMMANDS: &[&str] = &[
     "proposals",
     "history",
     "diff",
+    "handoffs",
+    "handoff",
+    "handoff-events",
+    "task",
+    "task-cancel",
     "mcp",
     "remove-participant",
 ];
@@ -200,6 +205,37 @@ fn parser() -> Command {
             &workspace,
         ))
         .subcommand(workspace_command("proposals", "List proposals", &workspace))
+        .subcommand(workspace_command("handoffs", "List handoffs", &workspace))
+        .subcommand(
+            Command::new("handoff")
+                .about("Show one handoff and its retained result")
+                .arg(workspace_arg(&workspace))
+                .arg(Arg::new("id").long("id").required(true))
+                .arg(json_arg()),
+        )
+        .subcommand(
+            Command::new("handoff-events")
+                .about("Show retained events for one handoff")
+                .arg(workspace_arg(&workspace))
+                .arg(Arg::new("id").long("id").required(true))
+                .arg(json_arg()),
+        )
+        .subcommand(
+            Command::new("task")
+                .about("Show a task the participant is allowed to see")
+                .arg(workspace_arg(&workspace))
+                .arg(Arg::new("id").long("id").required(true))
+                .arg(Arg::new("participant").long("participant").required(true))
+                .arg(json_arg()),
+        )
+        .subcommand(
+            Command::new("task-cancel")
+                .about("Ask a task to cancel. The participant must own it or be assigned")
+                .arg(workspace_arg(&workspace))
+                .arg(Arg::new("id").long("id").required(true))
+                .arg(Arg::new("participant").long("participant").required(true))
+                .arg(json_arg()),
+        )
         .subcommand(workspace_command(
             "history",
             "Show recent events",
@@ -410,6 +446,66 @@ fn local(command: &str, args: &clap::ArgMatches) -> Result<i32, CommonroomError>
             "participants" => emit_list(&engine.participants()?, as_json, people_text),
             "leases" => emit_list(&engine.leases()?, as_json, leases_text),
             "proposals" => emit_list(&engine.proposals()?, as_json, proposals_text),
+            "handoffs" => emit_list(&engine.list_handoffs()?, as_json, handoffs_text),
+            "handoff" => {
+                let payload = serde_json::to_value(
+                    engine.get_handoff(
+                        args.get_one::<String>("id")
+                            .map(String::as_str)
+                            .unwrap_or(""),
+                    )?,
+                )
+                .map_err(|err| ce_protocol::internal_error(err.to_string()))?;
+                emit(&payload, as_json, |item| {
+                    format!(
+                        "{} {}\n",
+                        item.get("handoff_id").and_then(Value::as_str).unwrap_or(""),
+                        item.get("status").and_then(Value::as_str).unwrap_or("")
+                    )
+                })
+            }
+            "handoff-events" => emit_list(
+                &engine.handoff_events(
+                    args.get_one::<String>("id")
+                        .map(String::as_str)
+                        .unwrap_or(""),
+                )?,
+                as_json,
+                history_text,
+            ),
+            "task" => {
+                let payload = serde_json::to_value(
+                    engine.get_task(
+                        args.get_one::<String>("participant")
+                            .map(String::as_str)
+                            .unwrap_or(""),
+                        args.get_one::<String>("id")
+                            .map(String::as_str)
+                            .unwrap_or(""),
+                    )?,
+                )
+                .map_err(|err| ce_protocol::internal_error(err.to_string()))?;
+                emit(&payload, as_json, |item| {
+                    format!(
+                        "{} {}\n",
+                        item.get("task_id").and_then(Value::as_str).unwrap_or(""),
+                        item.get("status").and_then(Value::as_str).unwrap_or("")
+                    )
+                })
+            }
+            "task-cancel" => {
+                let task = engine.cancel_task(
+                    args.get_one::<String>("participant")
+                        .map(String::as_str)
+                        .unwrap_or(""),
+                    args.get_one::<String>("id")
+                        .map(String::as_str)
+                        .unwrap_or(""),
+                )?;
+                let payload = serde_json::to_value(task)
+                    .map_err(|err| ce_protocol::internal_error(err.to_string()))?;
+                emit(&payload, as_json, |_| "cancelled\n".into())
+            }
             "history" => emit_list(&engine.history(50, None)?, as_json, history_text),
             "diff" => {
                 let payload =
@@ -679,6 +775,26 @@ fn leases_text(payload: &Value) -> String {
                 item.get("participant_id")
                     .and_then(Value::as_str)
                     .unwrap_or("")
+            )
+        })
+        .collect()
+}
+
+fn handoffs_text(payload: &Value) -> String {
+    let Some(items) = payload.as_array() else {
+        return "(none)\n".into();
+    };
+    if items.is_empty() {
+        return "(none)\n".into();
+    }
+    items
+        .iter()
+        .map(|item| {
+            format!(
+                "{} {} {}\n",
+                item.get("handoff_id").and_then(Value::as_str).unwrap_or(""),
+                item.get("status").and_then(Value::as_str).unwrap_or(""),
+                item.get("summary").and_then(Value::as_str).unwrap_or("")
             )
         })
         .collect()

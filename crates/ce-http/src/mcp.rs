@@ -1,26 +1,35 @@
 use std::collections::BTreeMap;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::time::Duration;
 
+use axum::body::Bytes;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Json, Response};
 use base64::Engine;
-use ce_core::{load_skill, Session, WorkspaceEngine};
+use ce_core::{
+    load_skill, Event, NewHandoff, Session, TaskView, WorkspaceEngine, TASK_CREATED, TASK_UPDATED,
+};
 use ce_protocol::{
-    has_capability, invalid_request, permission_denied, unauthorized, CommonroomError,
-    MCP_PROTOCOL_VERSION, SKILL_URI,
+    has_capability, invalid_request, limit_exceeded, permission_denied, unauthorized,
+    CommonroomError, MCP_PROTOCOL_VERSION, SKILL_URI,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use crate::notify::{
-    subscribable_resource, workspace_resources, NotifyHub, RESOURCE_DOCUMENT, RESOURCE_LEASES,
-    RESOURCE_PARTICIPANTS, RESOURCE_PROPOSALS, RESOURCE_STATUS,
+    event_stream, message_frame, resources_for_event, subscribable_resource, workspace_resources,
+    NotifyHub, RESOURCE_DOCUMENT, RESOURCE_LEASES, RESOURCE_PARTICIPANTS, RESOURCE_PROPOSALS,
+    RESOURCE_STATUS,
 };
 
 const HEADER_MISMATCH: i64 = -32020;
+const MISSING_CAPABILITY: i64 = -32021;
 const UNSUPPORTED_VERSION: i64 = -32022;
 const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_PARAMS: i64 = -32602;
 const APPLICATION_ERROR: i64 = -32000;
+const TASKS_EXTENSION: &str = "io.modelcontextprotocol/tasks";
 
 struct Tool {
     name: &'static str,
@@ -30,8 +39,8 @@ struct Tool {
 }
 
 pub fn handle_mcp(
-    engine: &WorkspaceEngine,
-    hub: &NotifyHub,
+    engine: &Arc<WorkspaceEngine>,
+    hub: &Arc<NotifyHub>,
     headers: &HeaderMap,
     body: &[u8],
 ) -> Response {
@@ -51,10 +60,15 @@ pub fn handle_mcp(
     let Some(method) = message.get("method").and_then(Value::as_str) else {
         return rpc_error(request_id, -32600, "invalid request", 400, None);
     };
+    let params = message.get("params").cloned().unwrap_or_else(|| json!({}));
     if message.get("id").is_none() || message.get("id") == Some(&Value::Null) {
+        if method == "notifications/cancelled" {
+            if let Some(request_id) = params.get("requestId") {
+                hub.cancel_listen(&listen_key(request_id));
+            }
+        }
         return StatusCode::ACCEPTED.into_response();
     }
-    let params = message.get("params").cloned().unwrap_or_else(|| json!({}));
     if !params.is_object() {
         return rpc_error(request_id, INVALID_PARAMS, "invalid params", 400, None);
     }
@@ -86,6 +100,10 @@ pub fn handle_mcp(
             | "resources/unsubscribe"
             | "skills/list"
             | "skills/get"
+            | "tasks/get"
+            | "tasks/update"
+            | "tasks/cancel"
+            | "subscriptions/listen"
     );
     let session = if protected {
         match session_from(engine, headers) {
@@ -115,6 +133,12 @@ pub fn handle_mcp(
         "resources/unsubscribe" => resources_unsubscribe(hub, session.as_ref(), &params),
         "skills/list" => Ok(skills_list()),
         "skills/get" => skills_get(&params),
+        "tasks/get" => tasks_get(engine, session.as_ref(), &params),
+        "tasks/update" => tasks_update(engine, session.as_ref(), &params),
+        "tasks/cancel" => tasks_cancel(engine, session.as_ref(), &params),
+        "subscriptions/listen" => {
+            return subscriptions_listen(engine, hub, session.as_ref(), &request_id, &params);
+        }
         _ => Err(RpcError {
             code: METHOD_NOT_FOUND,
             message: "method not found".into(),
@@ -164,6 +188,7 @@ fn header_mismatch(headers: &HeaderMap, method: &str, params: &Value) -> Option<
     let field = match method {
         "tools/call" | "prompts/get" => "name",
         "resources/read" | "resources/subscribe" | "resources/unsubscribe" => "uri",
+        "tasks/get" | "tasks/update" | "tasks/cancel" => "taskId",
         _ => return None,
     };
     let Some(expected) = params.get(field).and_then(Value::as_str) else {
@@ -221,7 +246,10 @@ fn discover() -> Value {
             "tools": {},
             "resources": {"subscribe": true},
             "prompts": {},
-            "extensions": {"io.modelcontextprotocol/skills": {}}
+            "extensions": {
+                "io.modelcontextprotocol/skills": {},
+                "io.modelcontextprotocol/tasks": {}
+            }
         },
         "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "Commonroom", "version": "0.1.0"}},
         "instructions": "Use the commonroom skill or the workspace_onboarding prompt before editing. Propose changes. Approval stays with the workspace owner.",
@@ -346,6 +374,60 @@ fn tools() -> Vec<Tool> {
             "Approve or reject a proposal.",
             json!({"type": "object", "properties": {"proposal_id": {"type": "string"}, "approve": {"type": "boolean"}}, "required": ["proposal_id", "approve"]}),
         ),
+        tool(
+            "handoff_create",
+            "propose",
+            "Create a handoff and a durable execution task.",
+            json!({"type": "object", "properties": {"summary": {"type": "string"}, "constraints": {"type": "string"}, "artifact_refs": {"type": "array", "items": {"type": "string"}}, "idempotency_key": {"type": "string"}, "correlation_id": {"type": "string"}}, "required": ["summary"]}),
+        ),
+        tool(
+            "handoff_list",
+            "read",
+            "List handoffs in this room.",
+            json!({"type": "object", "properties": {}}),
+        ),
+        tool(
+            "handoff_get",
+            "read",
+            "Read one handoff, including a retained result.",
+            json!({"type": "object", "properties": {"handoff_id": {"type": "string"}}, "required": ["handoff_id"]}),
+        ),
+        tool(
+            "handoff_accept",
+            "commit",
+            "Accept an open handoff and start its work.",
+            json!({"type": "object", "properties": {"handoff_id": {"type": "string"}}, "required": ["handoff_id"]}),
+        ),
+        tool(
+            "handoff_complete",
+            "commit",
+            "Record the result of a handoff you accepted.",
+            json!({"type": "object", "properties": {"handoff_id": {"type": "string"}, "result": {"type": "string"}}, "required": ["handoff_id", "result"]}),
+        ),
+        tool(
+            "handoff_request_input",
+            "commit",
+            "Pause a handoff you accepted until the owner answers.",
+            json!({"type": "object", "properties": {"handoff_id": {"type": "string"}, "prompt": {"type": "string"}}, "required": ["handoff_id", "prompt"]}),
+        ),
+        tool(
+            "handoff_events",
+            "read",
+            "Events for one handoff. This is the recovery log, not a replay of the live stream.",
+            json!({"type": "object", "properties": {"handoff_id": {"type": "string"}}, "required": ["handoff_id"]}),
+        ),
+        tool(
+            "handoff_approve",
+            "approve",
+            "Approve a handoff result. This does not change the execution task.",
+            json!({"type": "object", "properties": {"handoff_id": {"type": "string"}}, "required": ["handoff_id"]}),
+        ),
+        tool(
+            "handoff_reject",
+            "approve",
+            "Reject a handoff result. The execution task stays completed.",
+            json!({"type": "object", "properties": {"handoff_id": {"type": "string"}}, "required": ["handoff_id"]}),
+        ),
     ]
 }
 
@@ -405,6 +487,12 @@ fn tools_call(
         return Ok(tool_error(invalid_request(
             "tool arguments must be an object",
         )));
+    }
+    if name == "handoff_create" && client_has_tasks(params) {
+        return match create_handoff(engine, session, &arguments) {
+            Ok(created) => Ok(task_body(&created.task, "task")),
+            Err(err) => Ok(tool_error(err)),
+        };
     }
     match dispatch(engine, session, name, &arguments) {
         Ok(payload) => Ok(json!({
@@ -524,6 +612,31 @@ fn dispatch(
                 )?
             }
         }
+        "handoff_create" => as_json(create_handoff(engine, session, args)?)?,
+        "handoff_list" => as_json(engine.list_handoffs()?)?,
+        "handoff_get" => as_json(engine.get_handoff(required_str(args, "handoff_id")?)?)?,
+        "handoff_accept" => as_json(
+            engine.accept_handoff(&session.participant_id, required_str(args, "handoff_id")?)?,
+        )?,
+        "handoff_complete" => as_json(engine.complete_handoff(
+            &session.participant_id,
+            required_str(args, "handoff_id")?,
+            required_str(args, "result")?,
+        )?)?,
+        "handoff_request_input" => as_json(engine.request_handoff_input(
+            &session.participant_id,
+            required_str(args, "handoff_id")?,
+            required_str(args, "prompt")?,
+        )?)?,
+        "handoff_events" => {
+            json!({"events": engine.handoff_events(required_str(args, "handoff_id")?)?})
+        }
+        "handoff_approve" => as_json(
+            engine.approve_handoff(&session.participant_id, required_str(args, "handoff_id")?)?,
+        )?,
+        "handoff_reject" => as_json(
+            engine.reject_handoff(&session.participant_id, required_str(args, "handoff_id")?)?,
+        )?,
         "workspace_review" => as_json(
             engine.review_proposal(
                 required_str(args, "proposal_id")?,
@@ -776,6 +889,438 @@ fn rpc_error(id: Value, code: i64, message: &str, status: u16, data: Option<Valu
         Json(json!({"jsonrpc": "2.0", "id": id, "error": error})),
     )
         .into_response()
+}
+
+fn listen_key(id: &Value) -> String {
+    match id {
+        Value::String(value) => format!("s:{value}"),
+        Value::Number(value) => format!("n:{value}"),
+        other => format!("j:{other}"),
+    }
+}
+
+fn client_has_tasks(params: &Value) -> bool {
+    params
+        .get("_meta")
+        .and_then(|meta| meta.get("io.modelcontextprotocol/clientCapabilities"))
+        .and_then(|caps| caps.get("extensions"))
+        .and_then(|extensions| extensions.get(TASKS_EXTENSION))
+        .is_some_and(Value::is_object)
+}
+
+fn missing_tasks(id: Value) -> Response {
+    rpc_error(
+        id,
+        MISSING_CAPABILITY,
+        "Missing required client capability",
+        400,
+        Some(json!({
+            "requiredCapabilities": {
+                "extensions": { TASKS_EXTENSION: {} }
+            }
+        })),
+    )
+}
+
+fn require_tasks<'a>(
+    session: Option<&'a Session>,
+    params: &Value,
+) -> Result<&'a Session, RpcError> {
+    let Some(session) = session else {
+        return Err(rpc(INVALID_PARAMS, "session required", 400));
+    };
+    if client_has_tasks(params) {
+        Ok(session)
+    } else {
+        Err(RpcError {
+            code: MISSING_CAPABILITY,
+            message: "Missing required client capability".into(),
+            status: 400,
+            data: Some(json!({
+                "requiredCapabilities": {"extensions": {TASKS_EXTENSION: {}}}
+            })),
+        })
+    }
+}
+
+fn create_handoff(
+    engine: &WorkspaceEngine,
+    session: &Session,
+    args: &Value,
+) -> Result<ce_core::HandoffCreated, CommonroomError> {
+    let refs = match args.get("artifact_refs") {
+        None => Vec::new(),
+        Some(Value::Array(items)) => items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect(),
+        Some(_) => return Err(invalid_request("artifact_refs must be an array of strings")),
+    };
+    engine.create_handoff(
+        &session.participant_id,
+        NewHandoff {
+            summary: args.get("summary").and_then(Value::as_str).unwrap_or(""),
+            constraints: args
+                .get("constraints")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+            artifact_refs: &refs,
+            idempotency_key: args.get("idempotency_key").and_then(Value::as_str),
+            correlation_id: args.get("correlation_id").and_then(Value::as_str),
+        },
+    )
+}
+
+fn task_body(task: &TaskView, result_type: &str) -> Value {
+    let mut body = json!({
+        "resultType": result_type,
+        "taskId": task.task_id,
+        "status": task.status,
+        "createdAt": task.created_at,
+        "lastUpdatedAt": task.updated_at,
+        "ttlMs": task.ttl_ms,
+        "pollIntervalMs": task.poll_interval_ms,
+    });
+    if let Some(message) = &task.status_message {
+        body["statusMessage"] = json!(message);
+    }
+    if let Some(handoff_id) = &task.handoff_id {
+        body["handoffId"] = json!(handoff_id);
+    }
+    match task.status.as_str() {
+        "completed" => {
+            if let Some(result) = &task.result {
+                body["result"] = result.clone();
+            }
+        }
+        "failed" => {
+            if let Some(error) = &task.error {
+                body["error"] = error.clone();
+            }
+        }
+        "input_required" => {
+            body["inputRequests"] = task.input_requests.clone().unwrap_or_else(|| json!({}));
+        }
+        _ => {}
+    }
+    body
+}
+
+fn tasks_get(
+    engine: &WorkspaceEngine,
+    session: Option<&Session>,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    let session = require_tasks(session, params)?;
+    let task_id = params.get("taskId").and_then(Value::as_str).unwrap_or("");
+    match engine.get_task(&session.participant_id, task_id) {
+        Ok(task) => Ok(task_body(&task, "complete")),
+        Err(err) => Err(error_to_rpc(err)),
+    }
+}
+
+fn tasks_update(
+    engine: &WorkspaceEngine,
+    session: Option<&Session>,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    let session = require_tasks(session, params)?;
+    let task_id = params.get("taskId").and_then(Value::as_str).unwrap_or("");
+    let responses = params.get("inputResponses").cloned().unwrap_or(Value::Null);
+    match engine.apply_task_input(&session.participant_id, task_id, &responses) {
+        Ok(_) => Ok(json!({"resultType": "complete"})),
+        Err(err) => Err(error_to_rpc(err)),
+    }
+}
+
+fn tasks_cancel(
+    engine: &WorkspaceEngine,
+    session: Option<&Session>,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    let session = require_tasks(session, params)?;
+    let task_id = params.get("taskId").and_then(Value::as_str).unwrap_or("");
+    match engine.cancel_task(&session.participant_id, task_id) {
+        Ok(_) => Ok(json!({"resultType": "complete"})),
+        Err(err) => Err(error_to_rpc(err)),
+    }
+}
+
+fn error_to_rpc(err: CommonroomError) -> RpcError {
+    if err.message == "unknown task" || err.code == "invalid_request" {
+        RpcError {
+            code: INVALID_PARAMS,
+            message: err.message,
+            status: 400,
+            data: None,
+        }
+    } else {
+        RpcError {
+            code: APPLICATION_ERROR,
+            message: err.message.clone(),
+            status: err.http_status,
+            data: Some(err.to_value()),
+        }
+    }
+}
+
+fn subscriptions_listen(
+    engine: &Arc<WorkspaceEngine>,
+    hub: &Arc<NotifyHub>,
+    session: Option<&Session>,
+    request_id: &Value,
+    params: &Value,
+) -> Response {
+    let Some(session) = session else {
+        return rpc_error(
+            request_id.clone(),
+            INVALID_PARAMS,
+            "session required",
+            400,
+            None,
+        );
+    };
+    let notifications = params
+        .get("notifications")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    if !notifications.is_object() {
+        return rpc_error(
+            request_id.clone(),
+            INVALID_PARAMS,
+            "invalid params",
+            400,
+            None,
+        );
+    }
+    let task_ids = match string_list(notifications.get("taskIds")) {
+        Ok(values) => values,
+        Err(err) => return rpc_error(request_id.clone(), INVALID_PARAMS, &err.message, 400, None),
+    };
+    if !task_ids.is_empty() && !client_has_tasks(params) {
+        return missing_tasks(request_id.clone());
+    }
+    if task_ids.len() > 32 {
+        return rpc_error(
+            request_id.clone(),
+            APPLICATION_ERROR,
+            "too many task subscriptions",
+            429,
+            Some(limit_exceeded("too many task subscriptions").to_value()),
+        );
+    }
+    let requested_resources = match string_list(notifications.get("resourceSubscriptions")) {
+        Ok(values) => values,
+        Err(err) => return rpc_error(request_id.clone(), INVALID_PARAMS, &err.message, 400, None),
+    };
+    let can_read = has_capability(&session.capabilities, "read");
+    let resources: Vec<String> = if can_read {
+        requested_resources
+            .into_iter()
+            .filter(|uri| subscribable_resource(uri))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let mut accepted_tasks = Vec::new();
+    for task_id in &task_ids {
+        if engine.get_task(&session.participant_id, task_id).is_ok() {
+            accepted_tasks.push(task_id.clone());
+        }
+    }
+    let mut accepted = serde_json::Map::new();
+    if !resources.is_empty() {
+        accepted.insert("resourceSubscriptions".into(), json!(resources));
+    }
+    if !accepted_tasks.is_empty() {
+        accepted.insert("taskIds".into(), json!(accepted_tasks));
+    }
+    tracing::info!(
+        participant_id = %session.participant_id,
+        tasks = accepted_tasks.len(),
+        resources = resources.len(),
+        "subscription listening"
+    );
+    let stop = hub.begin_listen(&listen_key(request_id));
+    let engine = Arc::clone(engine);
+    let hub = Arc::clone(hub);
+    let session = session.clone();
+    let subscription_id = request_id.clone();
+    let key = listen_key(request_id);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(16);
+    std::thread::spawn(move || {
+        pump_listen(ListenPump {
+            engine,
+            hub,
+            session,
+            subscription_id,
+            accepted: Value::Object(accepted),
+            resources,
+            task_ids,
+            stop,
+            key,
+            tx,
+        });
+    });
+    let stream = async_stream::stream! {
+        while let Some(frame) = rx.recv().await {
+            yield Ok::<Bytes, std::io::Error>(Bytes::from(frame));
+        }
+    };
+    let mut response = event_stream(stream);
+    response.headers_mut().insert(
+        "mcp-protocol-version",
+        MCP_PROTOCOL_VERSION.parse().expect("protocol version"),
+    );
+    response
+}
+
+fn string_list(value: Option<&Value>) -> Result<Vec<String>, CommonroomError> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+    let Some(items) = value.as_array() else {
+        return Err(invalid_request("notification filters must be arrays"));
+    };
+    let mut values = Vec::new();
+    for item in items {
+        let Some(text) = item.as_str() else {
+            return Err(invalid_request("notification filters must be strings"));
+        };
+        values.push(text.to_string());
+    }
+    Ok(values)
+}
+
+struct ListenPump {
+    engine: Arc<WorkspaceEngine>,
+    hub: Arc<NotifyHub>,
+    session: Session,
+    subscription_id: Value,
+    accepted: Value,
+    resources: Vec<String>,
+    task_ids: Vec<String>,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    key: String,
+    tx: tokio::sync::mpsc::Sender<String>,
+}
+
+fn pump_listen(pump: ListenPump) {
+    let ListenPump {
+        engine,
+        hub,
+        session,
+        subscription_id,
+        accepted,
+        resources,
+        task_ids,
+        stop,
+        key,
+        tx,
+    } = pump;
+    let ack = json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/subscriptions/acknowledged",
+        "params": {
+            "_meta": {"io.modelcontextprotocol/subscriptionId": subscription_id},
+            "notifications": accepted
+        }
+    });
+    if tx.blocking_send(message_frame(&ack)).is_err() {
+        hub.end_listen(&key, &stop);
+        return;
+    }
+    tracing::info!(
+        participant_id = %session.participant_id,
+        tasks = task_ids.len(),
+        resources = resources.len(),
+        "subscription acknowledged"
+    );
+    let subscription = engine.subscribe();
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        if engine.authenticate(&session.session_id).is_err() {
+            break;
+        }
+        match subscription.recv_timeout(Duration::from_secs(15)) {
+            Ok(ce_core::Delivery::Event(event)) => {
+                if !forward_listen(
+                    &engine,
+                    &session,
+                    &subscription_id,
+                    &resources,
+                    &task_ids,
+                    &event,
+                    &tx,
+                ) {
+                    break;
+                }
+            }
+            Ok(ce_core::Delivery::Lagged) => break,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                if tx.blocking_send(": keepalive\n\n".into()).is_err() {
+                    break;
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    tracing::info!(participant_id = %session.participant_id, "subscription closed");
+    hub.end_listen(&key, &stop);
+}
+
+fn forward_listen(
+    engine: &WorkspaceEngine,
+    session: &Session,
+    subscription_id: &Value,
+    resources: &[String],
+    task_ids: &[String],
+    event: &Event,
+    tx: &tokio::sync::mpsc::Sender<String>,
+) -> bool {
+    if event.event_type == TASK_CREATED || event.event_type == TASK_UPDATED {
+        let Some(task_id) = event.payload.get("task_id").and_then(Value::as_str) else {
+            return true;
+        };
+        if !task_ids.iter().any(|id| id == task_id) {
+            return true;
+        }
+        let Ok(task) = engine.get_task(&session.participant_id, task_id) else {
+            return true;
+        };
+        let mut params = task_body(&task, "complete");
+        if let Some(map) = params.as_object_mut() {
+            map.remove("resultType");
+            let meta = map.entry("_meta").or_insert_with(|| json!({}));
+            meta["io.modelcontextprotocol/subscriptionId"] = subscription_id.clone();
+        }
+        let note = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/tasks",
+            "params": params
+        });
+        return tx.blocking_send(message_frame(&note)).is_ok();
+    }
+    for uri in resources_for_event(&event.event_type) {
+        if !resources.iter().any(|wanted| wanted == uri) {
+            continue;
+        }
+        let note = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/resources/updated",
+            "params": {
+                "uri": uri,
+                "_meta": {"io.modelcontextprotocol/subscriptionId": subscription_id}
+            }
+        });
+        if tx.blocking_send(message_frame(&note)).is_err() {
+            return false;
+        }
+    }
+    true
 }
 
 const ONBOARDING: &str = "\

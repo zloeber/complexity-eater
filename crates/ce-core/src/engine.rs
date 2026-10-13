@@ -28,6 +28,10 @@ use crate::markdown::{self, Heading};
 use crate::paths::resolve_user_path;
 use crate::{EventFilter, Subscription, SUBSCRIBER_CAPACITY};
 
+mod collaboration;
+
+pub use collaboration::{Handoff, HandoffCreated, NewHandoff, TaskView};
+
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS metadata (
     key TEXT PRIMARY KEY,
@@ -101,6 +105,46 @@ CREATE TABLE IF NOT EXISTS events (
     payload_json TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS handoffs (
+    handoff_id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    creator_id TEXT NOT NULL,
+    assignee_id TEXT,
+    summary TEXT NOT NULL,
+    constraints TEXT NOT NULL,
+    artifact_refs TEXT NOT NULL,
+    status TEXT NOT NULL,
+    result_text TEXT,
+    correlation_id TEXT NOT NULL,
+    idempotency_key TEXT,
+    task_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tasks (
+    task_id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    assignee_id TEXT,
+    handoff_id TEXT,
+    operation TEXT NOT NULL,
+    status TEXT NOT NULL,
+    status_message TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    ttl_ms INTEGER NOT NULL,
+    poll_interval_ms INTEGER NOT NULL,
+    result_json TEXT,
+    error_json TEXT,
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
+    correlation_id TEXT NOT NULL,
+    idempotency_key TEXT,
+    schema_version INTEGER NOT NULL,
+    input_requests_json TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS handoffs_idempotency
+    ON handoffs(creator_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
 ";
 
 #[derive(Clone)]
@@ -109,6 +153,11 @@ pub struct Clock(Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>);
 impl Clock {
     pub fn system() -> Self {
         Self(Arc::new(Utc::now))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fixed(at: DateTime<Utc>) -> Self {
+        Self(Arc::new(move || at))
     }
 
     fn now(&self) -> DateTime<Utc> {
@@ -850,10 +899,15 @@ impl EngineState {
     fn recover(&self) -> Result<(), CommonroomError> {
         self.expire_sessions()?;
         self.expire_leases()?;
+        self.expire_tasks()?;
         Ok(())
     }
 
-    fn record(&self, event_type: &str, mut payload: Value) -> Result<(), CommonroomError> {
+    pub(super) fn insert_event(
+        &self,
+        event_type: &str,
+        mut payload: Value,
+    ) -> Result<Event, CommonroomError> {
         redact_event_payload(&mut payload);
         let workspace_id = self.workspace_id()?;
         if let Some(map) = payload.as_object_mut() {
@@ -861,23 +915,26 @@ impl EngineState {
         }
         let body = payload.to_string();
         let now = self.now_text();
-        self.conn()?
-            .execute(
-                "INSERT INTO events(event_type, payload_json, created_at) VALUES (?1, ?2, ?3)",
-                params![event_type, body, now],
-            )
-            .db()?;
-        let event_id = self.conn()?.last_insert_rowid();
-        self.conn()?
-            .execute(
-                "DELETE FROM events WHERE event_id NOT IN (
-                    SELECT event_id FROM events ORDER BY event_id DESC LIMIT ?1
-                 )",
-                params![self.limits.max_events as i64],
-            )
-            .db()?;
-        self.bus
-            .publish(compose_event(event_id, event_type, now, payload));
+        let conn = self.conn()?;
+        conn.execute(
+            "INSERT INTO events(event_type, payload_json, created_at) VALUES (?1, ?2, ?3)",
+            params![event_type, body, now],
+        )
+        .db()?;
+        let event_id = conn.last_insert_rowid();
+        conn.execute(
+            "DELETE FROM events WHERE event_id NOT IN (
+                SELECT event_id FROM events ORDER BY event_id DESC LIMIT ?1
+             )",
+            params![self.limits.max_events as i64],
+        )
+        .db()?;
+        Ok(compose_event(event_id, event_type, now, payload))
+    }
+
+    fn record(&self, event_type: &str, payload: Value) -> Result<(), CommonroomError> {
+        let event = self.insert_event(event_type, payload)?;
+        self.bus.publish(event);
         Ok(())
     }
 

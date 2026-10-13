@@ -16,6 +16,9 @@ const NAME_FIELDS: &[(&str, &str)] = &[
     ("resources/read", "uri"),
     ("resources/subscribe", "uri"),
     ("resources/unsubscribe", "uri"),
+    ("tasks/get", "taskId"),
+    ("tasks/update", "taskId"),
+    ("tasks/cancel", "taskId"),
 ];
 
 pub fn run_dialer(invite: &str, name: &str, state_dir: Option<&Path>) -> i32 {

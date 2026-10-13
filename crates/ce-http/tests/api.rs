@@ -264,6 +264,9 @@ async fn mcp_discovery_hides_secrets_and_filters_tools() {
     assert!(
         body["result"]["capabilities"]["extensions"]["io.modelcontextprotocol/skills"].is_object()
     );
+    assert!(
+        body["result"]["capabilities"]["extensions"]["io.modelcontextprotocol/tasks"].is_object()
+    );
     let blob = body.to_string();
     assert!(!blob.contains(&invite.token));
     assert!(!blob.contains("session_id"));
@@ -290,7 +293,9 @@ async fn mcp_discovery_hides_secrets_and_filters_tools() {
         .map(|item| item["name"].as_str().unwrap().to_string())
         .collect();
     assert!(!names.iter().any(|name| name == "workspace_review"));
+    assert!(!names.iter().any(|name| name == "handoff_approve"));
     assert!(names.iter().any(|name| name == "workspace_propose"));
+    assert!(names.iter().any(|name| name == "handoff_create"));
 
     let skills = client
         .post(format!("{base}/mcp"))
@@ -713,4 +718,333 @@ async fn leaving_closes_the_event_stream() {
     let text = buf.lock().unwrap().clone();
     assert!(!text.contains("after-close-secret"), "{text}");
     assert!(!text.contains("proposal.created"), "{text}");
+}
+
+fn tasks_meta(task: bool) -> serde_json::Value {
+    let mut meta = json!({"io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION});
+    if task {
+        meta["io.modelcontextprotocol/clientCapabilities"] = json!({
+            "extensions": {"io.modelcontextprotocol/tasks": {}}
+        });
+    }
+    meta
+}
+
+async fn mcp(
+    client: &reqwest::Client,
+    base: &str,
+    bearer: &str,
+    method: &str,
+    name: Option<&str>,
+    params: serde_json::Value,
+) -> serde_json::Value {
+    let mut request = client
+        .post(format!("{base}/mcp"))
+        .bearer_auth(bearer)
+        .header("MCP-Protocol-Version", MCP_PROTOCOL_VERSION)
+        .header("Mcp-Method", method);
+    if let Some(name) = name {
+        request = request.header("Mcp-Name", name);
+    }
+    let response = request
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": method,
+            "params": params
+        }))
+        .send()
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert!(
+        status.is_success() || status.is_client_error(),
+        "{status} {body}"
+    );
+    body
+}
+
+#[tokio::test]
+async fn handoff_survives_restart_and_notifies_only_authorized_subscribers() {
+    let (_other_dir, other_engine) = engine("# Other\n");
+    let (dir, engine) = engine("# Plan\n");
+    let maker = engine
+        .join(
+            "agent",
+            "maker",
+            Some(vec!["read".into(), "propose".into(), "commit".into()]),
+            None,
+            "local",
+            None,
+        )
+        .unwrap();
+    let worker = engine
+        .join(
+            "agent",
+            "worker",
+            Some(vec!["read".into(), "commit".into()]),
+            None,
+            "local",
+            None,
+        )
+        .unwrap();
+    let stranger = engine
+        .join(
+            "agent",
+            "stranger",
+            Some(vec!["read".into()]),
+            None,
+            "local",
+            None,
+        )
+        .unwrap();
+    let created = engine
+        .create_handoff(
+            &maker.participant_id,
+            ce_core::NewHandoff {
+                summary: "write the note",
+                constraints: "keep it short",
+                artifact_refs: &[],
+                idempotency_key: Some("note-1"),
+                correlation_id: Some("corr-note"),
+            },
+        )
+        .unwrap();
+    engine
+        .accept_handoff(&worker.participant_id, &created.handoff.handoff_id)
+        .unwrap();
+    let path = engine.workspace_path();
+    let db = engine.db_path();
+    let maker_session = maker.session_id.clone();
+    let worker_session = worker.session_id.clone();
+    let stranger_session = stranger.session_id.clone();
+    let task_id = created.task.task_id.clone();
+    let handoff_id = created.handoff.handoff_id.clone();
+    engine.close();
+    drop(engine);
+    let reopened =
+        Arc::new(WorkspaceEngine::open(&path, Some(db), Limits::default(), None).unwrap());
+    let base = serve(create_router(Arc::clone(&reopened), Access::Session, None)).await;
+    let client = client();
+
+    let missing = mcp(
+        &client,
+        &base,
+        &maker_session,
+        "tasks/get",
+        Some(&task_id),
+        json!({"taskId": task_id, "_meta": tasks_meta(false)}),
+    )
+    .await;
+    assert_eq!(missing["error"]["code"], -32021);
+
+    let hidden = mcp(
+        &client,
+        &base,
+        &stranger_session,
+        "tasks/get",
+        Some(&task_id),
+        json!({"taskId": task_id, "_meta": tasks_meta(true)}),
+    )
+    .await;
+    assert_eq!(hidden["error"]["code"], -32602);
+
+    let legacy = client
+        .post(format!("{base}/mcp"))
+        .bearer_auth(&maker_session)
+        .header("MCP-Protocol-Version", "2025-11-25")
+        .header("Mcp-Method", "tasks/get")
+        .header("Mcp-Name", &task_id)
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tasks/get",
+            "params": {
+                "taskId": task_id,
+                "_meta": {"io.modelcontextprotocol/protocolVersion": "2025-11-25"}
+            }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(legacy.status(), 400);
+    assert_eq!(
+        legacy.json::<serde_json::Value>().await.unwrap()["error"]["code"],
+        -32022
+    );
+
+    let opened = mcp(
+        &client,
+        &base,
+        &maker_session,
+        "tools/call",
+        Some("handoff_create"),
+        json!({
+            "name": "handoff_create",
+            "arguments": {"summary": "second note", "idempotency_key": "note-2"},
+            "_meta": tasks_meta(true)
+        }),
+    )
+    .await;
+    assert_eq!(opened["result"]["resultType"], "task");
+    assert_eq!(opened["result"]["status"], "working");
+    let replay = mcp(
+        &client,
+        &base,
+        &maker_session,
+        "tools/call",
+        Some("handoff_create"),
+        json!({
+            "name": "handoff_create",
+            "arguments": {"summary": "second note", "idempotency_key": "note-2"},
+            "_meta": tasks_meta(true)
+        }),
+    )
+    .await;
+    assert_eq!(replay["result"]["taskId"], opened["result"]["taskId"]);
+
+    let other_base = serve(create_router(other_engine, Access::Session, None)).await;
+    let crossed = mcp(
+        &client,
+        &other_base,
+        &maker_session,
+        "tasks/get",
+        Some(&task_id),
+        json!({"taskId": task_id, "_meta": tasks_meta(true)}),
+    )
+    .await;
+    assert_eq!(crossed["error"]["code"], -32000);
+
+    let listen = collect_listen(
+        format!("{base}/mcp"),
+        maker_session.clone(),
+        json!({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "subscriptions/listen",
+            "params": {
+                "notifications": {
+                    "taskIds": [task_id],
+                    "toolsListChanged": true,
+                    "resourceSubscriptions": ["commonroom://workspace/proposals"]
+                },
+                "_meta": tasks_meta(true)
+            }
+        }),
+    );
+    let ack = wait_for(&listen, "subscriptions/acknowledged").await;
+    assert!(ack.contains(&task_id), "{ack}");
+    assert!(!ack.contains("toolsListChanged"), "{ack}");
+    let stranger_listen = collect_listen(
+        format!("{base}/mcp"),
+        stranger_session.clone(),
+        json!({
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "subscriptions/listen",
+            "params": {
+                "notifications": {"taskIds": [task_id]},
+                "_meta": tasks_meta(true)
+            }
+        }),
+    );
+    let stranger_ack = wait_for(&stranger_listen, "subscriptions/acknowledged").await;
+    assert!(!stranger_ack.contains(&task_id), "{stranger_ack}");
+
+    let completed = mcp(
+        &client,
+        &base,
+        &worker_session,
+        "tools/call",
+        Some("handoff_complete"),
+        json!({
+            "name": "handoff_complete",
+            "arguments": {"handoff_id": handoff_id, "result": "shipped the note"},
+            "_meta": tasks_meta(false)
+        }),
+    )
+    .await;
+    assert_eq!(completed["result"]["isError"], false);
+    let note = wait_for(&listen, "notifications/tasks").await;
+    assert!(note.contains("completed"), "{note}");
+    assert!(note.contains("shipped the note"), "{note}");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(
+        !stranger_listen
+            .lock()
+            .unwrap()
+            .contains("notifications/tasks"),
+        "{}",
+        stranger_listen.lock().unwrap()
+    );
+
+    let current = mcp(
+        &client,
+        &base,
+        &maker_session,
+        "tasks/get",
+        Some(&task_id),
+        json!({"taskId": task_id, "_meta": tasks_meta(true)}),
+    )
+    .await;
+    assert_eq!(current["result"]["status"], "completed");
+    assert_eq!(current["result"]["resultType"], "complete");
+    let again = mcp(
+        &client,
+        &base,
+        &worker_session,
+        "tools/call",
+        Some("handoff_complete"),
+        json!({
+            "name": "handoff_complete",
+            "arguments": {"handoff_id": handoff_id, "result": "shipped the note again"},
+            "_meta": tasks_meta(false)
+        }),
+    )
+    .await;
+    assert_eq!(again["result"]["isError"], false);
+    let stored = reopened.get_handoff(&handoff_id).unwrap();
+    assert_eq!(stored.result_text.as_deref(), Some("shipped the note"));
+    let _ = dir;
+}
+
+fn collect_listen(url: String, bearer: String, body: serde_json::Value) -> Arc<Mutex<String>> {
+    let buf = Arc::new(Mutex::new(String::new()));
+    let shared = Arc::clone(&buf);
+    tokio::spawn(async move {
+        let client = stream_client();
+        let Ok(response) = client
+            .post(url)
+            .bearer_auth(bearer)
+            .header("MCP-Protocol-Version", MCP_PROTOCOL_VERSION)
+            .header("Mcp-Method", "subscriptions/listen")
+            .header("Accept", "text/event-stream")
+            .json(&body)
+            .send()
+            .await
+        else {
+            return;
+        };
+        if !response.status().is_success() {
+            shared
+                .lock()
+                .unwrap()
+                .push_str(&format!("status:{}", response.status()));
+            return;
+        }
+        let mut stream = response.bytes_stream();
+        loop {
+            match tokio::time::timeout(Duration::from_secs(6), stream.next()).await {
+                Ok(Some(Ok(chunk))) => {
+                    shared
+                        .lock()
+                        .unwrap()
+                        .push_str(&String::from_utf8_lossy(&chunk));
+                }
+                _ => break,
+            }
+        }
+    });
+    buf
 }

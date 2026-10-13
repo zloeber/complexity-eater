@@ -520,3 +520,67 @@ async fn dialer_forwards_a_resource_update_notification() {
         result.1, result.2
     );
 }
+
+#[test]
+fn cli_reads_the_same_handoff_the_engine_stored() {
+    let (_dir, path) = scratch("# Plan\n");
+    let engine = WorkspaceEngine::open(&path, None, Limits::default(), None).unwrap();
+    let maker = engine
+        .join(
+            "agent",
+            "maker",
+            Some(vec!["propose".into(), "commit".into(), "read".into()]),
+            None,
+            "local",
+            None,
+        )
+        .unwrap();
+    let created = engine
+        .create_handoff(
+            &maker.participant_id,
+            ce_core::NewHandoff {
+                summary: "from the engine",
+                constraints: "",
+                artifact_refs: &[],
+                idempotency_key: None,
+                correlation_id: None,
+            },
+        )
+        .unwrap();
+    let handoff_id = created.handoff.handoff_id.clone();
+    let task_id = created.task.task_id.clone();
+    let participant = maker.participant_id.clone();
+    engine.close();
+    let listed = Command::new(bin())
+        .args(["handoffs", "--workspace", path.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        listed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&listed.stdout)
+    );
+    let listed: Value = serde_json::from_slice(&listed.stdout).unwrap();
+    assert_eq!(listed[0]["handoff_id"], handoff_id);
+    let task = Command::new(bin())
+        .args([
+            "task",
+            "--workspace",
+            path.to_str().unwrap(),
+            "--id",
+            &task_id,
+            "--participant",
+            &participant,
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        task.status.success(),
+        "{}",
+        String::from_utf8_lossy(&task.stdout)
+    );
+    let task: Value = serde_json::from_slice(&task.stdout).unwrap();
+    assert_eq!(task["status"], "working");
+    assert_eq!(task["correlation_id"], created.task.correlation_id);
+}

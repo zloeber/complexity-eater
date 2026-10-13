@@ -26,7 +26,7 @@ Read .mex/AGENTS.md if you have not already. Then read this file fully before an
 - The source of truth remains the markdown file; the sidecar SQLite database stores versions, proposals, leases, and events.
 - The core runtime is the `WorkspaceEngine` in `ce-core`, while HTTP and MCP routes live in `ce-http`.
 - The default integration points are loopback listeners plus optional `tailcat` transport support from the CLI.
-- Live room updates are faned through browser SSE and MCP resource subscriptions, with resync behavior when a stream lags or loses its cursor.
+- Live room updates are fanned through browser SSE, MCP resource subscriptions, and `subscriptions/listen`. Task and handoff state is durable in the sidecar. Listen streams are hints and are not replayed.
 - Current validation paths are `task check`, `task test`, `task e2e`, and `task release`.
 
 ## Behavioural Contract

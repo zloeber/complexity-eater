@@ -52,11 +52,13 @@ Only revision `2026-07-28` is accepted, and only on the session ingress.
 
 Tool permission failures are HTTP 200 results with `isError: true`. They are not JSON-RPC errors. The text is the same error object the HTTP API returns.
 
-Discovery reports `cacheScope: public`, `supportedVersions: ["2026-07-28"]`, `resources.subscribe: true`, and the skills extension. It does not include invitation secrets, session ids, or transport addresses. It does not advertise list-changed notifications.
+Discovery reports `cacheScope: public`, `supportedVersions: ["2026-07-28"]`, `resources.subscribe: true`, the skills extension, and `io.modelcontextprotocol/tasks`. It does not include invitation secrets, session ids, or transport addresses. It does not advertise list-changed notifications.
 
 `resources/subscribe` and `resources/unsubscribe` take a resource URI. The session needs `read`. Subscribable URIs are `commonroom://workspace/status`, `commonroom://workspace/document`, `commonroom://workspace/proposals`, `commonroom://workspace/leases`, and `commonroom://workspace/participants`. A change notifies with `notifications/resources/updated` and the URI. The client rereads the resource. The notification is a hint: clients disconnect, some clients never subscribe, and a missed hint is recovered by an ordinary read or tool call. A notification does not authorize the next operation, and a commit does not wait for one.
 
-Workspace mutations do not emit `notifications/tools/list_changed`, `notifications/prompts/list_changed`, or `notifications/resources/list_changed`. Progress messages and MCP tasks are not implemented. A normal mutation is one request and one response.
+Workspace mutations do not emit `notifications/tools/list_changed`, `notifications/prompts/list_changed`, or `notifications/resources/list_changed`. Progress messages are not implemented. A proposal or a lease is still one request and one response.
+
+`subscriptions/listen` is the opt-in stream for resource updates and task status. `tasks/get`, `tasks/update`, and `tasks/cancel` implement the tasks extension. The handoff that owns a task is a separate record. See [Tasks and handoffs](../architecture/tasks.md). Revision `2025-11-25` is rejected.
 
 ## Persistence
 

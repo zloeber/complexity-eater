@@ -30,6 +30,7 @@ The [system diagram](architecture/diagram.md) shows the room process, the two li
 
 * [Architecture](architecture/overview.md)
 * [Workspace events](architecture/events.md)
+* [Tasks and handoffs](architecture/tasks.md)
 * [Protocol](protocol/compatibility.md)
 * [Threat model](security/threat-model.md)
 * [Configuration](operations/configuration.md)
