@@ -2,6 +2,7 @@ title: Complexity Eater
 description: Different minds. Shared work.
 url: https://zloeber.github.io
 baseurl: /complexity-eater
+source_url: https://github.com/zloeber/complexity-eater
 theme: minima
 markdown: kramdown
 plugins:
