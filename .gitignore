@@ -1,5 +1,7 @@
 /target
 **/*.rs.bk
+*.cdx.json
+image-digest.txt
 .DS_Store
 *.commonroom.db
 *.commonroom.db-*

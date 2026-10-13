@@ -8,11 +8,11 @@ title: Release
 task release
 ```
 
-That runs `cargo build --release --locked --bin ce`. The release profile strips symbols, uses thin LTO, and one codegen unit. The artifact is `target/release/ce`.
+That runs `cargo build --release --locked --bin ce`. The compiler is the version in `rust-toolchain.toml`. The release profile uses optimization level 3, thin LTO, one codegen unit, and stripped symbols. The artifact is `target/release/ce`.
 
-`ce --version` prints the workspace package version. A source checkout plus `Cargo.lock` is the reproducible input. System libraries that Rust links dynamically, such as the platform C library, remain platform dependencies. The release binary does not need another language runtime or a second service.
+`ce --version` prints the workspace package version. `Cargo.lock` and the toolchain pin are the build inputs. `task repro` reports whether two clean builds produce the same bytes. System libraries that Rust links dynamically, such as the platform C library, remain platform dependencies. The release binary does not need another language runtime or a second service.
 
-CI on Ubuntu runs formatting, clippy with warnings denied, `cargo test --locked`, a release build, and `cargo audit`.
+CI runs formatting, clippy with warnings denied, `cargo test --locked`, `cargo audit`, `cargo deny`, a secret scan, a release-binary scan, and a container build and scan. The [supply-chain page](../security/supply-chain.md) is the policy.
 
 ## Tagged releases
 
@@ -35,8 +35,13 @@ A releasable commit updates the workspace version in `Cargo.toml` and `Cargo.loc
 * `ce-macos-aarch64.tar.gz`
 * `ce-macos-x86_64.tar.gz`
 * `SHA256SUMS`
+* `ce.cdx.json`
+* `ce-image.cdx.json`
+* `image-digest.txt`
 
-Each archive contains a single executable named `ce`.
+Each archive contains a single executable named `ce`. The workflow scans those archives before it uploads them. It also pushes `ghcr.io/zloeber/complexity-eater:<tag>` after the image scan passes. GitHub artifact attestations are attached to the archives, the checksum file, and the image. [How to verify them](../security/supply-chain.md).
+
+The container profile is on the [container page](container.md).
 
 ## Upgrade
 

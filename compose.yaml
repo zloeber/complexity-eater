@@ -1,0 +1,45 @@
+# Hardened local deployment of the ce image.
+#
+# ce binds 127.0.0.1 only. Published container ports do not reach that
+# listener, so this file uses the host network namespace. The process is
+# still not privileged, and it still refuses any non-loopback bind.
+# Docker Desktop on macOS does not attach that namespace to the Mac's
+# loopback; run the binary directly there, or use a Linux host for this file.
+#
+# The image does not include a shell, a package manager, or the tailcat
+# plugin. Ports below 1024 are outside this profile because NET_BIND_SERVICE
+# is dropped.
+
+services:
+  ce:
+    image: ce:supply-chain
+    build:
+      context: .
+    user: "65532:65532"
+    init: true
+    read_only: true
+    privileged: false
+    network_mode: host
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 512m
+    cpus: "1.0"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    volumes:
+      - ce-data:/var/lib/ce
+    environment:
+      HOME: /var/lib/ce
+      TMPDIR: /tmp
+      RUST_LOG: warn
+      CE_WORKSPACE: /var/lib/ce/workspace.md
+      XDG_CONFIG_HOME: /var/lib/ce/config
+      XDG_DATA_HOME: /var/lib/ce/data
+      XDG_STATE_HOME: /var/lib/ce/state
+    command: ["serve", "/var/lib/ce/workspace.md", "--name", "host", "--port", "8000"]
+
+volumes:
+  ce-data:

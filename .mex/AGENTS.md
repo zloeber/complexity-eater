@@ -1,7 +1,7 @@
 ---
 name: agents
 description: Always-loaded project anchor. Identity, non-negotiables, commands, pointer to ROUTER.
-last_updated: 2026-10-12
+last_updated: 2026-10-13
 ---
 
 # Complexity Eater
@@ -22,7 +22,7 @@ Complexity Eater is a Rust workspace that serves a markdown-centric shared room,
 - `cargo fmt --all -- --check`
 - `cargo clippy --all-targets --locked -- -D warnings`
 - `cargo test --workspace --locked`
-- `task check`, `task test`, `task e2e`, `task release`
+- `task check`, `task test`, `task e2e`, `task release`, `task supply-chain`, `task image-verify`
 
 ## Scaffold Growth
 After meaningful work, run the GROW step in ROUTER.md. Create or update patterns when the task type is new or non-obvious. The scaffold grows from real work.

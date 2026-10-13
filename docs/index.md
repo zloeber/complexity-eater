@@ -33,6 +33,8 @@ The [system diagram](architecture/diagram.md) shows the room process, the two li
 * [Tasks and handoffs](architecture/tasks.md)
 * [Protocol](protocol/compatibility.md)
 * [Threat model](security/threat-model.md)
+* [Supply chain](security/supply-chain.md)
 * [Configuration](operations/configuration.md)
+* [Container](operations/container.md)
 * [Release](operations/release.md)
 * [Roadmap](roadmap.md)

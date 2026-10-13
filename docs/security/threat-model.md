@@ -54,3 +54,5 @@ Header mismatch, oversized `Content-Length` (413 `limit_exceeded`), and the per-
 A malicious host can read the substrate; they already have the file. A person who can run code as the host user can read the sidecar database. Tenant isolation matters for a future multi-tenant host and is not a property of a single-user process.
 
 No phone-home, no central identity, and no license check runs in `ce serve`.
+
+Binary, image, and dependency controls are in the [supply-chain](supply-chain.md) page.

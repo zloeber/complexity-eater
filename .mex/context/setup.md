@@ -8,7 +8,7 @@ edges:
     condition: when confirming what runs where in the local room lifecycle
   - target: patterns/INDEX.md
     condition: before troubleshooting a project-specific setup issue
-last_updated: 2026-10-12
+last_updated: 2026-10-13
 ---
 
 # Setup
@@ -26,6 +26,8 @@ task test
 task check
 task e2e
 task release
+task supply-chain
+task image-verify
 ```
 
 ## Common commands
@@ -38,6 +40,8 @@ task release
 - The core protocol identifiers are intentionally fixed and should not be renamed casually.
 - `COMMONROOM_WORKSPACE`, `COMMONROOM_TAILCAT`, and `COMMONROOM_SKILL` are recognized fallback environment variables for workspace and transport selection.
 - The project targets macOS and Linux for development; the runtime is designed around loopback-first behavior.
+- `task supply-chain` installs pinned scanners into `target/supply-chain-bin` and runs the advisory, license, and secret gates.
+- `task image-verify` builds the distroless image and runs it read-only as UID 65532. Compose uses host networking because the process binds loopback only.
 
 ## Known boundaries
 - A two-machine Tailcat session is not part of the automated suite.

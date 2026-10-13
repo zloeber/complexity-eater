@@ -28,6 +28,16 @@ updated, count = re.subn(
 )
 if count != 1:
     raise SystemExit("workspace.package version was not updated")
+path_deps = ("ce-protocol", "ce-core", "ce-transport", "ce-http")
+for name in path_deps:
+    updated, dep_count = re.subn(
+        rf'(?m)^({name} = \{{ path = "crates/{name}", version = ")[^"]+(" \}})',
+        rf"\g<1>{version}\2",
+        updated,
+        count=1,
+    )
+    if dep_count != 1:
+        raise SystemExit(f"workspace dependency {name} version was not updated")
 cargo.write_text(updated)
 
 names = {"ce-cli", "ce-core", "ce-http", "ce-protocol", "ce-transport"}
