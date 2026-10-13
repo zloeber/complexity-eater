@@ -1,0 +1,46 @@
+---
+name: router
+description: Session bootstrap and navigation hub. Read at the start of every session. Contains project state, routing, and the GROW contract.
+edges:
+  - target: context/architecture.md
+    condition: system design, integrations, component relationships
+  - target: context/stack.md
+    condition: technologies, libraries, tech decisions
+  - target: context/conventions.md
+    condition: writing or reviewing code, project patterns
+  - target: context/decisions.md
+    condition: architectural choices or “why is it built this way”
+  - target: context/setup.md
+    condition: first-time setup or running the project
+  - target: patterns/INDEX.md
+    condition: starting any concrete task — check for a matching pattern first
+last_updated: 2026-10-12
+---
+
+# Session Bootstrap
+
+Read .mex/AGENTS.md if you have not already. Then read this file fully before any other work.
+
+## Current Project State
+- The repo is a Rust workspace with five crates: `ce-protocol`, `ce-core`, `ce-transport`, `ce-http`, and `ce-cli`.
+- The source of truth remains the markdown file; the sidecar SQLite database stores versions, proposals, leases, and events.
+- The core runtime is the `WorkspaceEngine` in `ce-core`, while HTTP and MCP routes live in `ce-http`.
+- The default integration points are loopback listeners plus optional `tailcat` transport support from the CLI.
+- Live room updates are faned through browser SSE and MCP resource subscriptions, with resync behavior when a stream lags or loses its cursor.
+- Current validation paths are `task check`, `task test`, `task e2e`, and `task release`.
+
+## Behavioural Contract
+1. Start here every session.
+2. Before a concrete task, open `patterns/INDEX.md`. If a matching pattern exists, follow it.
+3. Load only the `context/` and `patterns/` files indicated by edges and the task. Do not load the whole scaffold.
+4. After meaningful work, execute GROW before considering the task complete.
+
+## GROW
+- Ground — what actually changed?
+- Record — surgically update Current Project State and any affected `context/` files. Preserve frontmatter. Never delete decisions; mark them superseded.
+- Orient — if this was a new or non-obvious task type, create or refine a pattern and update `INDEX.md`.
+- Write — bump `last_updated` on every file you touched. Keep edges useful and preferably bidirectional.
+
+# Notes
+
+This project is intentionally small, opinionated, and protocol-defined. The architecture favors a single writer, explicit permissions, and a markdown substrate that remains readable outside the app.

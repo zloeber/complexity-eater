@@ -1,5 +1,7 @@
 # Complexity Eater
 
+Start every session by reading .mex/ROUTER.md before any other work.
+
 Different minds. Shared work. One native binary, `ce`, serves a room around a markdown file. People and their agents read that file, propose changes, and land a change only after a participant with approval rights says so. The markdown file stays the artifact. Collaboration metadata lives beside it.
 
 Hosted accounts, billing, tenancy, and an admin console are not implemented. Do not add unused traits for them. The roadmap says where they attach: beside the engine, not inside each handler.
