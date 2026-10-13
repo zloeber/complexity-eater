@@ -16,7 +16,7 @@ last_updated: 2026-10-13
 ## Language and workspace
 - Rust 1.99.0, pinned in `rust-toolchain.toml`. The workspace `rust-version` remains 1.85.
 - Cargo workspace with `crates/ce-cli`, `ce-core`, `ce-http`, `ce-protocol`, and `ce-transport`.
-- Edition 2021; workspace version is currently `0.1.0`.
+- Edition 2021; workspace version is currently `0.2.0`.
 
 ## Key libraries
 - `axum` for the HTTP surface in `ce-http`.
