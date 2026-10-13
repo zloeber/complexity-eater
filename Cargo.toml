@@ -23,7 +23,7 @@ ce-transport = { path = "crates/ce-transport", version = "0.2.1" }
 ce-http = { path = "crates/ce-http", version = "0.2.1" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-base64 = "0.22"
+base64 = "0.23"
 sha2 = "0.10"
 hex = "0.4"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

@@ -240,7 +240,7 @@ dependencies = [
 name = "ce-core"
 version = "0.2.1"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "ce-protocol",
  "chrono",
  "getrandom",
@@ -260,7 +260,7 @@ version = "0.2.1"
 dependencies = [
  "async-stream",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "ce-core",
  "ce-protocol",
  "futures-util",
@@ -279,7 +279,7 @@ dependencies = [
 name = "ce-protocol"
 version = "0.2.1"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "serde",
  "serde_json",
 ]
