@@ -32,6 +32,8 @@ The metadata database is `<substrate>.commonroom.db` next to the file, unless `-
 
 `RUST_LOG` controls tracing. The default filter is `warn`. Lines go to stderr so they do not corrupt MCP stdout.
 
+The container image sets `HOME`, `TMPDIR`, `CE_WORKSPACE`, and the `XDG_*` directories under `/var/lib/ce`. That layout is in the [container page](container.md).
+
 ## Platform directories
 
 These are for a future config file and for local data that is not a workspace sidecar. The workspace database does not move into them.

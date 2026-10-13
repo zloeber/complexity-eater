@@ -38,6 +38,41 @@ tasks:
     cmds:
       - cargo build --release --locked --bin ce
 
+  tools:
+    desc: Install pinned supply-chain scanners
+    cmds:
+      - zsh scripts/install-supply-chain-tools.zsh
+
+  supply-chain:
+    desc: Audit advisories, licenses, and secrets
+    cmds:
+      - zsh scripts/install-supply-chain-tools.zsh
+      - export PATH="$PWD/target/supply-chain-bin:$PATH" && zsh scripts/cargo-audit-gate.zsh
+      - export PATH="$PWD/target/supply-chain-bin:$PATH" && cargo deny check
+      - export PATH="$PWD/target/supply-chain-bin:$PATH" && gitleaks detect --source . --redact --no-banner
+
+  binary-hardening:
+    desc: Build the release binary and check platform hardening
+    cmds:
+      - cargo build --release --locked --bin ce
+      - zsh scripts/check-binary-hardening.zsh target/release/ce
+
+  image:
+    desc: Build the production container image
+    cmds:
+      - zsh scripts/build-image.zsh
+
+  image-verify:
+    desc: Build, scan, and run the hardened container profile
+    cmds:
+      - zsh scripts/install-supply-chain-tools.zsh
+      - export PATH="$PWD/target/supply-chain-bin:$PATH" && zsh scripts/verify-container.zsh
+
+  repro:
+    desc: Compare two clean release builds and report whether the bytes match
+    cmds:
+      - zsh scripts/compare-release-builds.zsh
+
   parity:
     desc: Run the full Rust parity suite
     cmds:

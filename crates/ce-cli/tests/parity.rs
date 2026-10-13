@@ -74,7 +74,7 @@ fn help_and_version_name_the_product() {
     assert!(text.contains("mcp"));
     let version = run(&["--version"]);
     assert!(version.status.success());
-    assert!(String::from_utf8_lossy(&version.stdout).contains("0.1.0"));
+    assert!(String::from_utf8_lossy(&version.stdout).contains(env!("CARGO_PKG_VERSION")));
 }
 
 #[test]

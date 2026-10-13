@@ -29,6 +29,8 @@ task build
 
 The binary is `target/release/ce`. `ce --version` prints the package version. `ce --help` lists the commands.
 
+A container build is in [docs/operations/container.md](docs/operations/container.md). Release checksums, SBOMs, and attestations are in [docs/operations/release.md](docs/operations/release.md).
+
 Supported development platforms are macOS and Linux on the architectures Rust's stable toolchain builds. Windows paths are implemented for configuration directories. A two-machine Tailcat session has not been run in this repository's test suite.
 
 ## Open a room

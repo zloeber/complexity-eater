@@ -71,7 +71,7 @@ Pushes to `main` run CI (`.github/workflows/ci.yml`). After that CI succeeds, se
 
 `docs:`, `test:`, `refactor:`, `chore:`, `ci:`, `build:`, and `style:` do not tag. Until a version tag exists, the first successful CI on `main` publishes the `Cargo.toml` workspace version through `scripts/publish-initial-release.zsh`. The release commit updates `Cargo.toml` and `Cargo.lock` through `scripts/set-workspace-version.zsh`. Use `chore(release):` for that commit so it does not tag again.
 
-The tag build (`.github/workflows/release-binaries.yml`) produces `ce` for Linux x86_64, Linux aarch64, macOS aarch64, and macOS x86_64, then attaches the archives and `SHA256SUMS` to the GitHub release. Semantic-release creates the tag with `GITHUB_TOKEN`, which does not itself start another workflow, so the release workflow dispatches the binary workflow. A tag pushed by a person still starts that workflow directly.
+The tag build (`.github/workflows/release-binaries.yml`) produces `ce` for Linux x86_64, Linux aarch64, macOS aarch64, and macOS x86_64, then attaches the archives, `SHA256SUMS`, and SBOMs to the GitHub release after those artifacts are scanned. It also publishes the distroless image to GHCR after the image scan. Semantic-release creates the tag with `GITHUB_TOKEN`, which does not itself start another workflow, so the release workflow dispatches the binary workflow. A tag pushed by a person still starts that workflow directly.
 
 ## Checks
 
@@ -80,8 +80,10 @@ task check    # fmt, clippy, tests
 task test
 task e2e      # CLI join, MCP dialer, proposal commit
 task release  # cargo build --release --locked --bin ce
+task supply-chain # audit, deny, secrets
+task image-verify # hardened container build and run
 ```
 
-CI also runs `cargo audit`. A two-machine Tailcat session is not part of the automated suite. Do not describe remote Tailcat as proven.
+CI also runs `cargo audit`, `cargo deny`, secret scanning, binary checks, and a container scan. A two-machine Tailcat session is not part of the automated suite. Do not describe remote Tailcat as proven.
 
-The toolchain is stable Rust, pinned in `rust-toolchain.toml`. Supported development platforms are macOS and Linux.
+The toolchain is Rust 1.99.0, pinned in `rust-toolchain.toml`. Supported development platforms are macOS and Linux.

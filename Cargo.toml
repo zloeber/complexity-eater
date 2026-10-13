@@ -17,10 +17,10 @@ publish = false
 rust-version = "1.85"
 
 [workspace.dependencies]
-ce-protocol = { path = "crates/ce-protocol" }
-ce-core = { path = "crates/ce-core" }
-ce-transport = { path = "crates/ce-transport" }
-ce-http = { path = "crates/ce-http" }
+ce-protocol = { path = "crates/ce-protocol", version = "0.2.0" }
+ce-core = { path = "crates/ce-core", version = "0.2.0" }
+ce-transport = { path = "crates/ce-transport", version = "0.2.0" }
+ce-http = { path = "crates/ce-http", version = "0.2.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
@@ -44,6 +44,10 @@ futures-util = "0.3"
 bytes = "1"
 
 [profile.release]
-strip = true
+opt-level = 3
 lto = "thin"
 codegen-units = 1
+# Drop symbols from the shipped binary. Panic unwind stays so a crash still
+# aborts through the runtime instead of a hard abort with no hook.
+strip = "symbols"
+panic = "unwind"

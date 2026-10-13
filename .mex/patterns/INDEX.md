@@ -5,5 +5,6 @@
 | [mcp-dialer](./mcp-dialer.md) | Running the MCP client, verifying the session ingress, or debugging `ce mcp` JSON-RPC behavior. |
 | [transport-selection](./transport-selection.md) | Selecting loopback vs. Tailcat, handling `transport_unavailable`, or diagnosing invitation dialing issues. |
 | [release-check](./release-check.md) | Preparing a release, verifying binary output, or checking that the workspace is build-ready. |
+| [supply-chain](./supply-chain.md) | Changing the toolchain pin, dependency policy, container profile, scanners, SBOMs, or release attestations. |
 | [workspace-events](./workspace-events.md) | Watching live room changes through SSE or MCP subscriptions, handling resyncs, and debugging notification fanout. |
 | [handoff-tasks](./handoff-tasks.md) | Creating a handoff, polling or subscribing to its task, and recovering the result after a disconnect or restart. |

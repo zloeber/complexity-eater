@@ -10,7 +10,7 @@ edges:
     condition: when verifying operational assumptions and supported environments
   - target: ../patterns/handoff-tasks.md
     condition: when the handoff and task split needs the operational steps
-last_updated: 2026-10-12
+last_updated: 2026-10-13
 ---
 
 # Architectural Decisions
@@ -38,4 +38,9 @@ last_updated: 2026-10-12
 ## 2026-10-12 — Optional transport plugin model
 - Rationale: The runtime supports loopback by default and optional Tailcat transport without making vendor-specific concepts part of the core crates.
 - Impact: The CLI may select a transport plugin, while `ce-core`, `ce-http`, and `ce-protocol` remain vendor-neutral.
+- Status: Active
+
+## 2026-10-13 — Supply-chain controls sit beside the release, not in the engine
+- Rationale: Binary, image, and dependency hardening should use the existing Taskfile, lockfile, and GitHub release workflow. Room authorization stays in the engine.
+- Impact: Rust 1.99.0 is pinned. `cargo deny` enforces the license and source policy. Release archives are scanned before upload. The container is distroless, runs as UID 65532, and uses host networking because `ce` only binds loopback. Attestations record the workflow and commit. They are not a claim that the bytes are free of vulnerabilities.
 - Status: Active
