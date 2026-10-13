@@ -12,7 +12,7 @@ edges:
     condition: when checking the Rust toolchain and workspace packaging assumptions
   - target: ../ROUTER.md
     condition: when writing a final status update for the project state
-last_updated: 2026-10-12
+last_updated: 2026-10-13
 ---
 
 # Release check
@@ -30,6 +30,7 @@ The release workflow uses GitHub Actions for CI and semantic-release. The `ce` b
 - `docs:`, `test:`, `refactor:`, and similar non-release prefixes do not trigger a version bump.
 - Release automation expects CI to pass before semantic release creates a tag.
 - The binary workflow attaches archives and `SHA256SUMS` to the GitHub release after tag creation.
+- `conventional-changelog-conventionalcommits` stays on 9.3.1. Preset 10 requires `conventional-changelog-writer` 9, and semantic-release 24 loads writer 8, so `generateNotes` fails before a tag exists.
 
 ## Verify
 - `task check`, `task test`, and `task release` cover the expected Rust verification path.
