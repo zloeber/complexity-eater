@@ -144,6 +144,51 @@ pub const OPERATIONS: &[Operation] = &[
         capability: "read",
     },
     Operation {
+        name: "workspace.handoffs",
+        http: "GET /workspace/handoffs",
+        capability: "read",
+    },
+    Operation {
+        name: "workspace.handoff",
+        http: "GET /workspace/handoff",
+        capability: "read",
+    },
+    Operation {
+        name: "workspace.handoff_events",
+        http: "GET /workspace/handoff/events",
+        capability: "read",
+    },
+    Operation {
+        name: "workspace.handoff_create",
+        http: "POST /workspace/handoff/create",
+        capability: "propose",
+    },
+    Operation {
+        name: "workspace.handoff_accept",
+        http: "POST /workspace/handoff/accept",
+        capability: "commit",
+    },
+    Operation {
+        name: "workspace.handoff_complete",
+        http: "POST /workspace/handoff/complete",
+        capability: "commit",
+    },
+    Operation {
+        name: "workspace.handoff_approve",
+        http: "POST /workspace/handoff/approve",
+        capability: "approve",
+    },
+    Operation {
+        name: "workspace.task",
+        http: "GET /workspace/task",
+        capability: "read",
+    },
+    Operation {
+        name: "workspace.task_cancel",
+        http: "POST /workspace/task/cancel",
+        capability: "read",
+    },
+    Operation {
         name: "workspace.history",
         http: "GET /workspace/history",
         capability: "read",

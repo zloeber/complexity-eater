@@ -39,6 +39,8 @@ The names are the ones the engine already used. They are finer than a single "up
 | Lease taken or renewed | `lease.acquired` |
 | Lease released or expired | `lease.released`, `lease.expired` |
 | Invitation created or revoked | `invite.created`, `invite.revoked` |
+| Handoff opened, accepted, finished, approved, rejected, or cancelled | `handoff.created`, `handoff.accepted`, `handoff.result_ready`, `handoff.approved`, `handoff.rejected`, `handoff.cancelled` |
+| Execution task created or changed | `task.created`, `task.updated` |
 
 A denied call does not emit the success event for that call. A second release of a lease, or a second revoke of an invitation, does not emit another event. `proposal.conflicted` is recorded because the proposal status did change; `change.committed` is not.
 
@@ -48,7 +50,7 @@ There is no `workspace.updated` event. Version changes are `change.committed`.
 
 One mutex covers a mutation and the event insert. `event_id` order is the mutation order for that process. Subscribers can see duplicates and must ignore an id less than or equal to their cursor.
 
-The event row and the state change are separate SQLite statements. A crash between them can leave a change without an event. Live delivery is after the insert. A failed insert does not wake subscribers.
+Proposal, lease, and session changes insert the event after the row change, still under the engine mutex. A crash between those two statements can leave a change without an event. Handoff and task changes write the row and the event in one SQLite transaction, then publish. Live delivery is after that commit. A failed insert does not wake subscribers.
 
 The sidecar keeps the newest 2000 events. Older ids are gone. That ring is the only replay. It is not a durable log you can ship to another machine.
 
@@ -86,7 +88,7 @@ People listed on the page are participants who have not left. The list is member
 
 ## MCP
 
-Discovery advertises `resources.subscribe: true` for protocol `2026-07-28`. It does not advertise list-changed notifications. Tool, prompt, and resource lists do not change when the markdown changes.
+Discovery advertises `resources.subscribe: true` and the tasks extension for protocol `2026-07-28`. It does not advertise list-changed notifications. Tool, prompt, and resource lists do not change when the markdown changes. Task notifications are documented with [handoffs](tasks.md).
 
 Workspace resources, for a session that can `read`:
 
@@ -116,10 +118,10 @@ The server sends that when a subscribed resource changes, and again for each cur
 
 `ce mcp` opens this stream beside its request connection and writes those notifications to stdout. A client that never subscribes, or never reads the stream, still uses tools and resources the way it did before.
 
-If a stream falls behind, it is closed. The next connection receives the current subscriptions as update hints. Nothing is queued for a client that is gone. A successful commit does not wait for a client to see the notification.
+If a stream falls behind, it is closed. The next `GET /mcp` receives the current resource subscriptions as update hints. `subscriptions/listen` starts with an acknowledgement and does not replay. Nothing is queued for a client that is gone. A successful commit does not wait for a client to see the notification.
 
 ## What this is not
 
-A notification is not progress for the request in flight, and it is not an MCP task. Ordinary mutations stay request/response. A later task extension would need handles, status, cancellation, expiry, and a story for clients that do not implement it. That work is not started.
+A notification is not progress for the request in flight. Ordinary proposal and lease mutations stay request/response. Task status is a separate record, described in [Tasks and handoffs](tasks.md). `notifications/tasks` is a hint that the task row changed. `tasks/get` and the handoff are the authority. `subscriptions/listen` does not replay events from the ring.
 
-There is no broker and no hosted event log. A process restart keeps the sidecar ring and loses the in-memory subscribers. After a restart, read the resources or call the tools.
+There is no broker and no hosted event log. A process restart keeps the sidecar ring and loses the in-memory subscribers. After a restart, read the resources, the handoff, or the task.

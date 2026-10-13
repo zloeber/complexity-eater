@@ -83,6 +83,7 @@ struct NotifyInner {
     engine: Arc<WorkspaceEngine>,
     subscriptions: Mutex<HashMap<String, HashSet<String>>>,
     streams: Mutex<HashMap<String, SyncSender<Note>>>,
+    listens: Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
 
 pub struct NotifyHub {
@@ -96,6 +97,7 @@ impl NotifyHub {
             engine: Arc::clone(&engine),
             subscriptions: Mutex::new(HashMap::new()),
             streams: Mutex::new(HashMap::new()),
+            listens: Mutex::new(HashMap::new()),
         });
         let stop = Arc::new(AtomicBool::new(false));
         let hub = Arc::new(Self {
@@ -117,6 +119,31 @@ impl NotifyHub {
             .or_default()
             .insert(uri.to_string());
         Ok(())
+    }
+
+    pub fn begin_listen(&self, id: &str) -> Arc<AtomicBool> {
+        let flag = Arc::new(AtomicBool::new(false));
+        let mut listens = self.inner.listens.lock().expect("listens");
+        if let Some(previous) = listens.insert(id.to_string(), Arc::clone(&flag)) {
+            previous.store(true, Ordering::Relaxed);
+        }
+        flag
+    }
+
+    pub fn end_listen(&self, id: &str, flag: &Arc<AtomicBool>) {
+        let mut listens = self.inner.listens.lock().expect("listens");
+        if listens
+            .get(id)
+            .is_some_and(|current| Arc::ptr_eq(current, flag))
+        {
+            listens.remove(id);
+        }
+    }
+
+    pub fn cancel_listen(&self, id: &str) {
+        if let Some(flag) = self.inner.listens.lock().expect("listens").get(id) {
+            flag.store(true, Ordering::Relaxed);
+        }
     }
 
     pub fn unsubscribe_resource(
@@ -302,7 +329,11 @@ pub fn mcp_stream_response(
     response
 }
 
-fn event_stream(
+pub(crate) fn message_frame(payload: &serde_json::Value) -> String {
+    format!("event: message\ndata: {payload}\n\n")
+}
+
+pub(crate) fn event_stream(
     stream: impl futures_util::Stream<Item = Result<Bytes, std::io::Error>> + Send + 'static,
 ) -> Response {
     let body = axum::body::Body::from_stream(stream);
@@ -516,12 +547,11 @@ fn resync_frame(reason: &str) -> String {
 }
 
 fn mcp_frame(uri: &str) -> String {
-    let payload = json!({
+    message_frame(&json!({
         "jsonrpc": "2.0",
         "method": "notifications/resources/updated",
         "params": {"uri": uri}
-    });
-    format!("event: message\ndata: {payload}\n\n")
+    }))
 }
 
 pub fn cursor_from(headers: &HeaderMap, query_cursor: i64) -> i64 {

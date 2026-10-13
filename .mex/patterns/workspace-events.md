@@ -23,7 +23,7 @@ The engine is the only writer. After a successful mutation it records the state 
 ## Steps
 1. Verify the mutation completed in the engine and inserted a `change.*` or `proposal.*` event.
 2. For the browser stream, use `GET /workspace/observe` with `Last-Event-ID` or `since_event_id`. If a gap or lag is detected, reload `/workspace/room` instead of trusting partial state.
-3. For MCP, subscribe with `resources/subscribe` on a read-capable session and expect `notifications/resources/updated` on the stream.
+3. For MCP resource hints, subscribe with `resources/subscribe` or `subscriptions/listen` on a read-capable session and expect `notifications/resources/updated`. Task status uses `subscriptions/listen` with `taskIds` and is recovered with `tasks/get`, not by replaying the stream. See [handoff-tasks](./handoff-tasks.md).
 4. Re-read the authoritative resource after the notification; do not treat the notification as authorization or as a complete record of the body.
 5. If the stream falls behind, reconnect and resubscribe; the next connection receives the current subscriptions as hints.
 

@@ -46,4 +46,4 @@ The dialer does not use those directories. It stores sessions at `$XDG_STATE_HOM
 
 ## Limits
 
-Request body 1 MiB. Proposal 256 KiB. 32 active sessions. 2000 events retained. Lease default 15 minutes, maximum 120. Invitation default 60 minutes, maximum 7 days. Session default 8 hours, maximum 24 hours. Authenticated rate limit 600 requests per minute. List size 1 to 200.
+Request body 1 MiB. Proposal 256 KiB. Handoff result 256 KiB. 32 active sessions. 32 active tasks (`working` or `input_required`). Task TTL 24 hours. 2000 events retained. Lease default 15 minutes, maximum 120. Invitation default 60 minutes, maximum 7 days. Session default 8 hours, maximum 24 hours. Authenticated rate limit 600 requests per minute. List size 1 to 200. `tasks/get` suggests a 5 second poll. Polling faster than that is still subject to the room rate limit. The listen stream does not add a second quota.

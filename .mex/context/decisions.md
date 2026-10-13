@@ -8,10 +8,17 @@ edges:
     condition: when checking whether a runtime choice is consistent with project direction
   - target: setup.md
     condition: when verifying operational assumptions and supported environments
+  - target: ../patterns/handoff-tasks.md
+    condition: when the handoff and task split needs the operational steps
 last_updated: 2026-10-12
 ---
 
 # Architectural Decisions
+
+## 2026-10-12 — Handoffs, tasks, and events stay separate records
+- Rationale: A collaboration request, its execution, the hint that it changed, and human approval are different decisions. MCP task statuses are the protocol's statuses, not a second copy of the handoff lifecycle.
+- Impact: Task rows and handoff rows live in the sidecar. `subscriptions/listen` does not replay. `tasks/get` and the handoff are authoritative. There is no broker and no second MCP stack.
+- Status: Active
 
 ## 2026-10-12 — Markdown remains the source of truth
 - Rationale: The room is defined around a human-editable markdown file, and the sidecar database is support metadata rather than a separate system of record.

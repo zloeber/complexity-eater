@@ -105,6 +105,12 @@ Do this. Do not read the whole artifact and write it back.
 
 If this host offers `resources.subscribe`, subscribe to `commonroom://workspace/proposals` or `commonroom://workspace/document` and treat `notifications/resources/updated` as a hint to read that resource again. The notification is not the document and it is not approval. If you cannot subscribe, keep using the tools. After a disconnect, read the resource or call `workspace_history`.
 
+## Handoffs
+
+`handoff_create` asks another participant to do a piece of work. If you declare `io.modelcontextprotocol/tasks` on the request, the result may be a task handle (`resultType: "task"`). If you do not, the tool result is the handoff itself and a task id is still inside it. The task id is not a credential.
+
+The other participant calls `handoff_accept`, then `handoff_complete` with the result. You read it with `tasks/get` or `handoff_get`. `handoff_events` is the recovery log. `subscriptions/listen` with that `taskId` is a live hint and does not replay what you missed. Approval is `handoff_approve`, and only a session with `approve` can do it. Completing the task does not approve the result.
+
 ## Regions
 
 Markdown regions are heading paths such as `Architecture` or `Architecture/Goals`. Checkout `section:Architecture`. Read that section instead of the file.
