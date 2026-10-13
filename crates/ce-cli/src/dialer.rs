@@ -1,6 +1,8 @@
 use std::io::Write;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use ce_protocol::{decode_invitation, CommonroomError, MCP_PROTOCOL_VERSION};
@@ -12,6 +14,8 @@ const NAME_FIELDS: &[(&str, &str)] = &[
     ("tools/call", "name"),
     ("prompts/get", "name"),
     ("resources/read", "uri"),
+    ("resources/subscribe", "uri"),
+    ("resources/unsubscribe", "uri"),
 ];
 
 pub fn run_dialer(invite: &str, name: &str, state_dir: Option<&Path>) -> i32 {
@@ -36,7 +40,7 @@ pub fn run_dialer(invite: &str, name: &str, state_dir: Option<&Path>) -> i32 {
     };
     let code = match restore_or_join(&mut link, &document, &secret, name, state_dir) {
         Ok(Some(session_id)) => {
-            forward(&mut link, &session_id);
+            forward(&mut link, &session_id, &document);
             0
         }
         Ok(None) => 1,
@@ -152,7 +156,15 @@ fn restore_or_join(
     Ok(Some(session_id))
 }
 
-fn forward(link: &mut Link, session_id: &str) {
+fn forward(link: &mut Link, session_id: &str, document: &Value) {
+    let stop = Arc::new(AtomicBool::new(false));
+    let notify_stop = Arc::clone(&stop);
+    let hint = document
+        .get("transport")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let session = session_id.to_string();
+    let notify = std::thread::spawn(move || notify_loop(&notify_stop, hint, session));
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
         let Ok(line) = line else {
@@ -193,6 +205,8 @@ fn forward(link: &mut Link, session_id: &str) {
             write_stdout(&body);
         }
     }
+    stop.store(true, Ordering::Relaxed);
+    let _ = notify.join();
 }
 
 fn with_protocol(message: &Value) -> Value {
@@ -313,9 +327,146 @@ fn fail(code: impl AsRef<str>, message: impl AsRef<str>) {
 }
 
 fn write_stdout(payload: &Value) {
-    let mut out = std::io::stdout();
+    let mut out = std::io::stdout().lock();
     let _ = writeln!(out, "{payload}");
     let _ = out.flush();
+}
+
+enum StreamEnd {
+    Stop,
+    Retry,
+}
+
+fn notify_loop(stop: &AtomicBool, hint: Value, session_id: String) {
+    while !stop.load(Ordering::Relaxed) {
+        match read_notifications(stop, &hint, &session_id) {
+            StreamEnd::Stop => break,
+            StreamEnd::Retry => {
+                for _ in 0..5 {
+                    if stop.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(40));
+                }
+            }
+        }
+    }
+}
+
+fn read_notifications(stop: &AtomicBool, hint: &Value, session_id: &str) -> StreamEnd {
+    let mut connection = match open_notify(hint) {
+        Ok(connection) => connection,
+        Err(_) => {
+            return if stop.load(Ordering::Relaxed) {
+                StreamEnd::Stop
+            } else {
+                StreamEnd::Retry
+            };
+        }
+    };
+    if connection
+        .send(notify_request(session_id).as_bytes())
+        .is_err()
+    {
+        return StreamEnd::Retry;
+    }
+    let mut raw = Vec::new();
+    let (status, chunked, length, mut pending) = loop {
+        if stop.load(Ordering::Relaxed) {
+            return StreamEnd::Stop;
+        }
+        match connection.receive(8192) {
+            Ok(chunk) if chunk.is_empty() => return StreamEnd::Retry,
+            Ok(chunk) => {
+                raw.extend_from_slice(&chunk);
+                if let Some(parsed) = crate::http_client::header_complete(&raw) {
+                    break parsed;
+                }
+                if raw.len() > 65_536 {
+                    return StreamEnd::Stop;
+                }
+            }
+            Err(_) => {
+                if stop.load(Ordering::Relaxed) {
+                    return StreamEnd::Stop;
+                }
+            }
+        }
+    };
+    if matches!(status, 401 | 403 | 404 | 405) {
+        return StreamEnd::Stop;
+    }
+    if status != 200 {
+        return StreamEnd::Retry;
+    }
+    let mut decoder = crate::http_client::ChunkDecoder::new();
+    let mut text = String::new();
+    let mut received = 0usize;
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            return StreamEnd::Stop;
+        }
+        let decoded = if chunked {
+            let decoded = decoder.push(&pending);
+            pending.clear();
+            decoded
+        } else {
+            std::mem::take(&mut pending)
+        };
+        if !decoded.is_empty() {
+            received += decoded.len();
+            text.push_str(&String::from_utf8_lossy(&decoded));
+            emit_notifications(&mut text);
+        }
+        if chunked && decoder.is_done() {
+            return StreamEnd::Retry;
+        }
+        if length.is_some_and(|length| !chunked && received >= length) {
+            return StreamEnd::Stop;
+        }
+        match connection.receive(8192) {
+            Ok(chunk) if chunk.is_empty() => return StreamEnd::Retry,
+            Ok(chunk) => pending = chunk,
+            Err(_) => {}
+        }
+    }
+}
+
+fn emit_notifications(buffer: &mut String) {
+    for message in crate::http_client::take_sse_json(buffer) {
+        let method = message.get("method").and_then(Value::as_str).unwrap_or("");
+        if method.starts_with("notifications/") {
+            write_stdout(&message);
+        }
+    }
+}
+
+fn notify_request(session_id: &str) -> String {
+    format!(
+        "GET /mcp HTTP/1.1\r\nHost: commonroom\r\nAuthorization: Bearer {session_id}\r\nAccept: text/event-stream\r\nMCP-Protocol-Version: {MCP_PROTOCOL_VERSION}\r\n\r\n"
+    )
+}
+
+fn open_notify(hint: &Value) -> Result<Box<dyn Connection>, CommonroomError> {
+    let host = hint
+        .get("address")
+        .and_then(Value::as_str)
+        .unwrap_or("127.0.0.1");
+    if matches!(host, "127.0.0.1" | "localhost") {
+        if let Some(port) = hint.get("port").and_then(Value::as_u64) {
+            let address = format!("{host}:{port}")
+                .parse()
+                .map_err(|_| ce_protocol::transport_unavailable("connect failed"))?;
+            let sock = TcpStream::connect_timeout(&address, Duration::from_secs(2))
+                .map_err(|_| ce_protocol::transport_unavailable("connect failed"))?;
+            return Ok(Box::new(SocketConnection::new(
+                sock,
+                Duration::from_millis(200),
+            )));
+        }
+    }
+    let (_plugin, connection, _hint) = connect_invitation(&json!({"transport": hint}))?;
+    Ok(connection)
 }
 
 struct Link {
