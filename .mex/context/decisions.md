@@ -60,6 +60,11 @@ last_updated: 2026-10-14
 - Impact: `ce serve --mode review|baton` defaults to review. Baton duration is capped (`--baton-max-minutes`, default 15; zero is refused). The holder writes one region with `workspace_write`. Other checkouts and writes see `baton_held`. Reads stay open. `workspace_propose` remains the advisory path and still needs approval to commit. Mode changes and revoke require `admin`. A baton commit records `baton_id` on `change.committed`. Revert appends a new version. Default invitations do not gain `approve`, `invite`, or `admin`.
 - Status: Active
 
+## 2026-10-14 — Room settings layer from TOML, and a baton grant can refuse further renewals
+- Rationale: Flags alone cannot travel with a markdown room, and an unlimited renewal lets one participant hold the baton until everyone else gives up.
+- Impact: `config.toml` in the platform config directory, then `<substrate>.commonroom.toml`, then `--config`, then an explicit flag. `[baton]` holds `max_minutes`, `default_minutes`, and `max_renewals`. A missing renewal cap stays unlimited. `0` refuses renewals. A later renewal returns `baton_renewal_limit`. Releasing the grant starts a new one. Unknown keys fail at load. The engine stores the resolved numbers; it does not grow a plugin trait for collaboration addons.
+- Status: Active
+
 ## 2026-10-14 — Release provenance is the version tag
 - Rationale: Dispatching the binary workflow on `main` recorded `refs/heads/main`, so a verifier pinning the tag ref failed.
 - Impact: After semantic-release tags `vX.Y.Z`, the dispatch uses that tag ref. The install page documents `gh attestation verify` next to `SHA256SUMS`.

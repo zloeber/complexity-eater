@@ -266,6 +266,10 @@ function renderMode(room) {
   const status = room.status || {};
   const baton = status.baton;
   let text = "Mode " + (status.mode || "review") + " · max " + (status.baton_max_minutes || 15) + " minutes";
+  if (status.baton_max_renewals != null) {
+    const used = baton ? baton.renewals : 0;
+    text += " · renewals " + used + "/" + status.baton_max_renewals;
+  }
   if (baton) text += " · " + baton.holder + " until " + baton.expires_at;
   else text += " · no baton held";
   document.getElementById("mode-banner").textContent = text;

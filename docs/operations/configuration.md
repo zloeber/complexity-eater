@@ -2,7 +2,7 @@
 title: Configuration
 ---
 
-`ce` does not require a config file. Flags and environment variables are enough for a local room.
+`ce` does not require a config file. A TOML file overrides the built-in defaults, and an explicit flag overrides the file.
 
 ## Workspace
 
@@ -28,6 +28,8 @@ The metadata database is `<substrate>.commonroom.db` next to the file, unless `-
 | `--mode` | `review` (default) or `baton`. Baton lets the holder write without approval. |
 | `--baton-max-minutes` | Cap on one grant or renewal. Default 15. Zero is refused. |
 | `--baton-default-minutes` | Grant when a request omits a duration. Must be at most the max. |
+| `--baton-max-renewals` | Renewals allowed on the current grant. Zero refuses renewals. Omitted means unlimited. |
+| `--config` | TOML file applied after the user and workspace files. |
 
 `CE_TAILCAT` and `COMMONROOM_TAILCAT` select the Tailcat executable. The default name is `tailcat` on `PATH`.
 
@@ -37,9 +39,34 @@ The metadata database is `<substrate>.commonroom.db` next to the file, unless `-
 
 The container image sets `HOME`, `TMPDIR`, `CE_WORKSPACE`, and the `XDG_*` directories under `/var/lib/ce`. That layout is in the [container page](container.md).
 
+## Config file
+
+Settings load in this order. A later layer replaces a key it sets and leaves the rest alone.
+
+1. Built-in defaults.
+2. The user file, `config.toml` in the platform config directory below, when that file exists.
+3. `<substrate>.commonroom.toml` beside the markdown file, when that file exists. `notes.md` reads `notes.md.commonroom.toml`.
+4. `--config path`. A missing path is an error. The automatic files are optional.
+5. A flag passed on the command line. A flag left at its default does not wipe the file.
+
+```toml
+mode = "review"
+host = "127.0.0.1"
+port = 8000
+
+[baton]
+max_minutes = 15
+default_minutes = 15
+max_renewals = 2
+```
+
+`mode` is `review` or `baton`. `[baton]` is the collaboration addon. `max_renewals` counts extensions of the current grant, including a second `workspace_baton_request` from the holder. After the cap, renew returns `baton_renewal_limit` until the holder releases it or it expires. The next request is a new grant. Omit `max_renewals` for no cap. `0` refuses every renewal. An unknown key is an error, so a typo does not look like it applied.
+
+`transport` may name a plugin. Omit it for loopback. `--transport` and `--tailcat` win over the file. `--ephemeral` stays a flag because it chooses where this process keeps the sidecar.
+
 ## Platform directories
 
-These are for a future config file and for local data that is not a workspace sidecar. The workspace database does not move into them.
+The user config file lives in the config directory. Workspace metadata does not move into these directories.
 
 | OS | Config | Data |
 | --- | --- | --- |

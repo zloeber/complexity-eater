@@ -11,6 +11,9 @@ use clap::{Arg, ArgAction, Command};
 use serde::Serialize;
 use serde_json::{json, Value};
 
+use clap::parser::ValueSource;
+
+use crate::config::{load_room_file, resolve_room, ServeOverrides};
 use crate::dialer::run_dialer;
 use crate::http_client::http_exchange;
 use crate::room::start_room;
@@ -148,6 +151,17 @@ fn parser() -> Command {
                         .long("baton-default-minutes")
                         .value_parser(clap::value_parser!(i64))
                         .help("Grant length when a request omits minutes"),
+                )
+                .arg(
+                    Arg::new("baton-max-renewals")
+                        .long("baton-max-renewals")
+                        .value_parser(clap::value_parser!(i64))
+                        .help("Renewals allowed on one grant. Zero refuses renewals"),
+                )
+                .arg(
+                    Arg::new("config")
+                        .long("config")
+                        .help("TOML file that overrides the user and workspace config"),
                 )
                 .arg(Arg::new("json").long("json").action(ArgAction::SetTrue)),
         )
@@ -304,6 +318,16 @@ fn json_arg() -> Arg {
     Arg::new("json").long("json").action(ArgAction::SetTrue)
 }
 
+fn flag_value<T>(args: &clap::ArgMatches, id: &str) -> Option<T>
+where
+    T: Clone + Send + Sync + 'static,
+{
+    match args.value_source(id) {
+        Some(ValueSource::CommandLine) => args.get_one::<T>(id).cloned(),
+        _ => None,
+    }
+}
+
 fn leak_str(value: impl Into<String>) -> &'static str {
     Box::leak(value.into().into_boxed_str())
 }
@@ -359,29 +383,39 @@ async fn serve(args: &clap::ArgMatches) -> Result<i32, CommonroomError> {
         Limits::default(),
         None,
     )?);
-    let transport = args
-        .get_one::<String>("transport")
-        .map(String::as_str)
-        .or_else(|| args.get_flag("tailcat").then_some("tailcat"));
-    let host = args
-        .get_one::<String>("host")
-        .map(String::as_str)
-        .unwrap_or("127.0.0.1");
-    let port = *args.get_one::<u16>("port").unwrap_or(&8000);
-    let name = args
-        .get_one::<String>("name")
-        .map(String::as_str)
-        .unwrap_or("host");
-    let mode = args
-        .get_one::<String>("mode")
-        .map(String::as_str)
-        .unwrap_or("review");
-    let baton_max = *args.get_one::<i64>("baton-max-minutes").unwrap_or(&15);
-    let baton_default = args
-        .get_one::<i64>("baton-default-minutes")
-        .copied()
-        .unwrap_or(baton_max.min(15));
-    engine.configure_room(mode, baton_max, baton_default)?;
+    let file = load_room_file(
+        std::path::Path::new(path),
+        args.get_one::<String>("config")
+            .map(String::as_str)
+            .map(std::path::Path::new),
+    )?;
+    let settings = resolve_room(
+        file,
+        ServeOverrides {
+            mode: flag_value(args, "mode"),
+            host: flag_value(args, "host"),
+            port: flag_value(args, "port"),
+            name: flag_value(args, "name"),
+            transport: flag_value::<String>(args, "transport")
+                .or_else(|| args.get_flag("tailcat").then(|| "tailcat".into())),
+            baton_max_minutes: flag_value(args, "baton-max-minutes"),
+            baton_default_minutes: flag_value(args, "baton-default-minutes"),
+            baton_max_renewals: flag_value(args, "baton-max-renewals"),
+        },
+        args.get_one::<String>("name")
+            .map(String::as_str)
+            .unwrap_or("host"),
+    )?;
+    let host = settings.host.as_str();
+    let port = settings.port;
+    let name = settings.name.as_str();
+    let transport = settings.transport.as_deref();
+    engine.configure_room(
+        &settings.mode,
+        settings.baton_max_minutes,
+        settings.baton_default_minutes,
+        settings.baton_max_renewals,
+    )?;
     let result = async {
         let mut room = start_room(Arc::clone(&engine), host, port, name, transport).await?;
         if args.get_flag("json") {

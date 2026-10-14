@@ -41,6 +41,8 @@ const RECOVERY_FIELDS: &[&str] = &[
     "expires_at",
     "baton_id",
     "mode",
+    "renewals",
+    "max_renewals",
 ];
 
 pub const ERROR_CODES: &[&str] = &[
@@ -63,6 +65,7 @@ pub const ERROR_CODES: &[&str] = &[
     "baton_held",
     "baton_required",
     "baton_expired",
+    "baton_renewal_limit",
     "mode_mismatch",
 ];
 
@@ -435,6 +438,10 @@ pub fn baton_required(message: impl Into<String>) -> CommonroomError {
 
 pub fn baton_expired(message: impl Into<String>) -> CommonroomError {
     CommonroomError::new("baton_expired", 409, message)
+}
+
+pub fn baton_renewal_limit(message: impl Into<String>) -> CommonroomError {
+    CommonroomError::new("baton_renewal_limit", 409, message)
 }
 
 pub fn mode_mismatch(message: impl Into<String>) -> CommonroomError {

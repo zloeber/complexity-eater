@@ -380,13 +380,13 @@ fn tools() -> Vec<Tool> {
         tool(
             "workspace_baton_request",
             "commit",
-            "Request the editing baton in baton mode. A request above the cap is clamped.",
+            "Request the editing baton in baton mode. A request above the cap is clamped. The same holder renews, up to max_renewals on workspace_status.",
             json!({"type": "object", "properties": {"minutes": {"type": "integer"}, "reason": {"type": "string"}}}),
         ),
         tool(
             "workspace_baton_renew",
             "commit",
-            "Extend the baton you hold, to at most now plus the room maximum.",
+            "Extend the baton you hold, to at most now plus the room maximum. baton_renewal_limit means this grant cannot be extended again.",
             json!({"type": "object", "properties": {"baton_id": {"type": "string"}, "minutes": {"type": "integer"}}, "required": ["baton_id"]}),
         ),
         tool(

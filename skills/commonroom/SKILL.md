@@ -118,7 +118,7 @@ Whole-file replacement is explicit: `change.mode` is `document`, or `target` is 
 
 `review` is the default: propose, then someone with `approve` accepts, then commit. Unrelated regions can land together. A second proposal on a region that changed returns `stale_version`.
 
-`baton` lets the holder write with `workspace_write` and no approval. Request `workspace_baton_request` with optional `minutes` and `reason`. A request above the room cap is clamped; the result's `expires_at` is the real deadline. If someone else holds it, you get `baton_held` with `details.holder` and `details.expires_at`. Renew with `workspace_baton_renew`. An expired baton returns `baton_expired` and does not change the file. A write without a baton returns `baton_required`. Reads stay open. `workspace_propose` still works as an advisory path for people who do not hold the baton.
+`baton` lets the holder write with `workspace_write` and no approval. Request `workspace_baton_request` with optional `minutes` and `reason`. A request above the room cap is clamped; the result's `expires_at` is the real deadline. If someone else holds it, you get `baton_held` with `details.holder` and `details.expires_at`. Renew with `workspace_baton_renew`. `workspace_status` includes `baton_max_renewals` when the room caps extensions of one grant. At that cap, renew and a repeat request return `baton_renewal_limit` with `details.renewals` and `details.max_renewals`. Release the baton; the next request starts a new grant. An expired baton returns `baton_expired` and does not change the file. A write without a baton returns `baton_required`. Reads stay open. `workspace_propose` still works as an advisory path for people who do not hold the baton.
 
 Only the host (`admin`) can switch modes or revoke the baton. Switching back to `review` revokes the baton, and `workspace_write` then returns `mode_mismatch`. A default invitation cannot do either.
 
@@ -144,7 +144,7 @@ A lease expires (about 15 minutes) and everyone can see it. `lease_conflict` mea
 
 `stale_version` means the room moved. Do not retry the same body. Read `current_version`, `diff`, and `changes`. Look again, then write a new proposal.
 
-Other codes you can act on: `unauthorized`, `permission_denied`, `invitation_expired`, `invitation_revoked`, `invitation_redeemed`, `unsupported_version`, `session_expired`, `proposal_conflict`, `invalid_region`, `limit_exceeded`, `baton_held`, `baton_required`, `baton_expired`, `mode_mismatch`, `transport_unavailable`.
+Other codes you can act on: `unauthorized`, `permission_denied`, `invitation_expired`, `invitation_revoked`, `invitation_redeemed`, `unsupported_version`, `session_expired`, `proposal_conflict`, `invalid_region`, `limit_exceeded`, `baton_held`, `baton_required`, `baton_expired`, `baton_renewal_limit`, `mode_mismatch`, `transport_unavailable`.
 
 `limit_exceeded` includes `details.limit` and `details.size`. `invalid_region` for an ambiguous name includes `details.candidates`.
 

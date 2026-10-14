@@ -32,7 +32,8 @@ Read .mex/AGENTS.md if you have not already. Then read this file fully before an
 - Rust 1.99.0 is pinned. Release archives and the distroless image are scanned before publication. The container runs as UID 65532 and uses host networking because the process binds loopback only. The binary workflow is dispatched on the version tag so provenance records `refs/tags/vX.Y.Z`.
 - A proposal replaces the leased region. Whole-document replacement is explicit: `change.mode` of `document`, or a target of `workspace` or `*`. A commit rebases an in-flight proposal whose region does not overlap the change, and conflicts only on overlap.
 - The owner listener sets `commonroom_session` only for a loopback `Host` and only after the one-time token in the printed Human URL. Mutating owner routes reject a foreign `Origin`.
-- The room mode is `review` by default. `baton` lets the holder write one region directly, with a time cap. Mode, holder, and the cap are on `workspace_status`. Status, region lists, and unscoped reads stay bounded. An oversized body surfaces as `limit_exceeded`.
+- The room mode is `review` by default. `baton` lets the holder write one region directly, with a time cap. Mode, holder, and the cap are on `workspace_status`. A room can cap renewals of one grant. Status, region lists, and unscoped reads stay bounded. An oversized body surfaces as `limit_exceeded`.
+- Room settings can come from TOML. The user file is `config.toml` in the platform config directory. `<substrate>.commonroom.toml` overrides it, `--config` overrides both, and an explicit CLI flag wins. Omitted flags keep the file value.
 
 ## Behavioural Contract
 1. Start here every session.

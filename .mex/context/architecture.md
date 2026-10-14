@@ -39,7 +39,8 @@ last_updated: 2026-10-14
 ## External boundaries
 - The owner port serves the human page. It accepts only a loopback `Host`. The printed Human URL carries a one-time token; exchanging it sets `commonroom_session` and redirects to a clean URL. Mutating owner routes reject a foreign `Origin` and `Sec-Fetch-Site: cross-site`.
 - Regions are CommonMark ATX headings. A fenced code block and a hash that is not a heading are not regions. Replacing a region is a byte splice of that heading's span.
-- Room mode is `review` or `baton`, stored in sidecar metadata. Review is the approval path. Baton grants one holder a time-boxed direct write. Switching back to review revokes the holder. The owner page shows the mode, a proposal diff, and recent baton commits with a revert that appends a new version.
+- Room mode is `review` or `baton`, stored in sidecar metadata. Review is the approval path. Baton grants one holder a time-boxed direct write. `baton_max_renewals`, when set, stops that holder from extending the same grant. Switching back to review revokes the holder. The owner page shows the mode, a proposal diff, and recent baton commits with a revert that appends a new version.
+- `ce-cli` loads room settings from TOML before it calls the engine. The engine stores the resolved mode and baton limits. It does not parse the file.
 - The session ingress is separate and accepts bearer tokens; `POST /mcp` is mounted only there.
 - Invitations are encoded with the `commonroom://join/` scheme and may point to loopback or a discovered transport.
 - A transport plugin is optional; a missing plugin surfaces as `transport_unavailable` rather than a public listener.

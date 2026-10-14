@@ -1,4 +1,5 @@
 mod cli;
+mod config;
 mod dialer;
 mod http_client;
 mod room;

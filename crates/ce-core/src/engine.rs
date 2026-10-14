@@ -4,11 +4,11 @@ use std::time::Duration;
 
 use base64::Engine;
 use ce_protocol::{
-    baton_expired, baton_held, baton_required, capabilities_from_permissions, encode_invitation,
-    has_capability, internal_error, invalid_request, invitation_expired, invitation_redeemed,
-    invitation_revoked, lease_conflict, limit_exceeded, mode_mismatch, normalize_capabilities,
-    permission_denied, proposal_conflict, proposal_not_found, session_expired, stale_version,
-    unauthorized, version_not_found, CommonroomError, Limits,
+    baton_expired, baton_held, baton_renewal_limit, baton_required, capabilities_from_permissions,
+    encode_invitation, has_capability, internal_error, invalid_request, invitation_expired,
+    invitation_redeemed, invitation_revoked, lease_conflict, limit_exceeded, mode_mismatch,
+    normalize_capabilities, permission_denied, proposal_conflict, proposal_not_found,
+    session_expired, stale_version, unauthorized, version_not_found, CommonroomError, Limits,
 };
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -277,6 +277,8 @@ pub struct Status {
     pub mode: String,
     pub baton_max_minutes: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub baton_max_renewals: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub baton: Option<BatonView>,
 }
 
@@ -443,6 +445,8 @@ pub struct Diagnostics {
     pub mode: String,
     pub baton_max_minutes: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub baton_max_renewals: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub baton: Option<BatonView>,
 }
 
@@ -452,6 +456,7 @@ pub struct BatonView {
     pub holder: String,
     pub participant_id: String,
     pub expires_at: String,
+    pub renewals: i64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -460,6 +465,9 @@ pub struct BatonGrant {
     pub holder: String,
     pub expires_at: String,
     pub max_minutes: i64,
+    pub renewals: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_renewals: Option<i64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -850,9 +858,14 @@ impl WorkspaceEngine {
         mode: &str,
         baton_max_minutes: i64,
         baton_default_minutes: i64,
+        baton_max_renewals: Option<i64>,
     ) -> Result<(), CommonroomError> {
-        self.lock()
-            .configure_room(mode, baton_max_minutes, baton_default_minutes)
+        self.lock().configure_room(
+            mode,
+            baton_max_minutes,
+            baton_default_minutes,
+            baton_max_renewals,
+        )
     }
 
     pub fn set_room_mode(
@@ -1249,6 +1262,7 @@ impl EngineState {
             heading_count: markdown::headings(&content).len(),
             mode: self.room_mode()?,
             baton_max_minutes: self.baton_max_minutes()?,
+            baton_max_renewals: self.baton_max_renewals()?,
             baton: self.current_baton()?,
         })
     }
@@ -2577,6 +2591,7 @@ impl EngineState {
         mode: &str,
         baton_max_minutes: i64,
         baton_default_minutes: i64,
+        baton_max_renewals: Option<i64>,
     ) -> Result<(), CommonroomError> {
         if mode != "review" && mode != "baton" {
             return Err(invalid_request("mode must be review or baton"));
@@ -2589,9 +2604,20 @@ impl EngineState {
                 "baton default minutes must be positive and no greater than the max",
             ));
         }
+        if baton_max_renewals.is_some_and(|value| value < 0) {
+            return Err(invalid_request(
+                "baton max renewals must be zero or positive",
+            ));
+        }
         self.set_meta("room_mode", mode)?;
         self.set_meta("baton_max_minutes", &baton_max_minutes.to_string())?;
         self.set_meta("baton_default_minutes", &baton_default_minutes.to_string())?;
+        self.set_meta(
+            "baton_max_renewals",
+            &baton_max_renewals
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+        )?;
         Ok(())
     }
 
@@ -2647,6 +2673,35 @@ impl EngineState {
             .unwrap_or(max.min(15)))
     }
 
+    fn baton_max_renewals(&self) -> Result<Option<i64>, CommonroomError> {
+        Ok(self
+            .meta("baton_max_renewals")?
+            .filter(|value| !value.is_empty())
+            .and_then(|value| value.parse().ok())
+            .filter(|value| *value >= 0))
+    }
+
+    fn baton_renewal_count(&self) -> Result<i64, CommonroomError> {
+        Ok(self
+            .meta("baton_renewal_count")?
+            .and_then(|value| value.parse().ok())
+            .filter(|value| *value >= 0)
+            .unwrap_or(0))
+    }
+
+    fn consume_renewal(&self) -> Result<(), CommonroomError> {
+        let count = self.baton_renewal_count()?;
+        if let Some(max) = self.baton_max_renewals()? {
+            if count >= max {
+                return Err(baton_renewal_limit("this grant has used its renewal limit")
+                    .detail("renewals", count)
+                    .detail("max_renewals", max)
+                    .detail("baton_id", self.meta("baton_id")?.unwrap_or_default()));
+            }
+        }
+        self.set_meta("baton_renewal_count", &(count + 1).to_string())
+    }
+
     fn baton_status(&self) -> Result<Value, CommonroomError> {
         self.expire_baton()?;
         let baton = self.current_baton()?;
@@ -2657,6 +2712,8 @@ impl EngineState {
             "expires_at": baton.as_ref().map(|item| item.expires_at.clone()),
             "baton_id": baton.as_ref().map(|item| item.baton_id.clone()),
             "max_minutes": self.baton_max_minutes()?,
+            "max_renewals": self.baton_max_renewals()?,
+            "renewals": baton.as_ref().map(|item| item.renewals).unwrap_or(0),
         }))
     }
 
@@ -2692,6 +2749,7 @@ impl EngineState {
         self.set_meta("baton_id", &baton_id)?;
         self.set_meta("baton_holder", &session.participant_id)?;
         self.set_meta("baton_expires", &expires_at)?;
+        self.set_meta("baton_renewal_count", "0")?;
         self.record(
             BATON_GRANTED,
             json!({
@@ -2706,6 +2764,8 @@ impl EngineState {
             holder: session.name.clone(),
             expires_at,
             max_minutes: self.baton_max_minutes()?,
+            renewals: 0,
+            max_renewals: self.baton_max_renewals()?,
         })
     }
 
@@ -2735,6 +2795,7 @@ impl EngineState {
                 .detail("baton_id", current.baton_id));
         }
         let granted = self.clamp_baton_minutes(minutes)?;
+        self.consume_renewal()?;
         let expires_at = format_time(self.now() + chrono::Duration::minutes(granted));
         self.set_meta("baton_expires", &expires_at)?;
         self.record(
@@ -2750,6 +2811,8 @@ impl EngineState {
             holder: current.holder,
             expires_at,
             max_minutes: self.baton_max_minutes()?,
+            renewals: self.baton_renewal_count()?,
+            max_renewals: self.baton_max_renewals()?,
         })
     }
 
@@ -2974,6 +3037,7 @@ impl EngineState {
             holder: self.participant_name(&participant_id)?,
             participant_id,
             expires_at,
+            renewals: self.baton_renewal_count()?,
         }))
     }
 
@@ -3011,6 +3075,7 @@ impl EngineState {
         self.set_meta("baton_id", "")?;
         self.set_meta("baton_holder", "")?;
         self.set_meta("baton_expires", "")?;
+        self.set_meta("baton_renewal_count", "")?;
         Ok(())
     }
 
@@ -3044,6 +3109,7 @@ impl EngineState {
             participants,
             mode: self.room_mode()?,
             baton_max_minutes: self.baton_max_minutes()?,
+            baton_max_renewals: self.baton_max_renewals()?,
             baton: self.current_baton()?,
         })
     }
@@ -4261,7 +4327,7 @@ mod tests {
     #[test]
     fn baton_mode_writes_one_region_and_blocks_everyone_else() {
         let (_dir, engine) = engine("# Doc\n\n## Plan\n\nold\n\n## Tail\n\nstay\n");
-        engine.configure_room("baton", 10, 10).unwrap();
+        engine.configure_room("baton", 10, 10, None).unwrap();
         let host = engine.ensure_host("Ada", "local").unwrap();
         let caps = Some(vec![
             "read".into(),
@@ -4343,7 +4409,7 @@ mod tests {
     #[test]
     fn an_expired_baton_does_not_write() {
         let (_dir, engine) = engine("# Doc\n\n## Plan\n\nold\n");
-        engine.configure_room("baton", 10, 10).unwrap();
+        engine.configure_room("baton", 10, 10, None).unwrap();
         let holder = engine
             .join(
                 "agent",
@@ -4378,5 +4444,42 @@ mod tests {
             std::fs::read_to_string(engine.workspace_path()).unwrap(),
             before
         );
+    }
+
+    #[test]
+    fn a_holder_cannot_renew_past_the_configured_cap() {
+        let (_dir, engine) = engine("# Doc\n\n## Plan\n\nold\n");
+        engine.configure_room("baton", 10, 10, Some(1)).unwrap();
+        let holder = engine
+            .join(
+                "agent",
+                "holder",
+                Some(vec!["commit".into()]),
+                None,
+                "local",
+                None,
+            )
+            .unwrap();
+        let grant = engine.baton_request(Some(5), None, &holder).unwrap();
+        assert_eq!(grant.renewals, 0);
+        assert_eq!(grant.max_renewals, Some(1));
+        let renewed = engine
+            .baton_renew(&grant.baton_id, Some(5), &holder)
+            .unwrap();
+        assert_eq!(renewed.renewals, 1);
+        let err = engine
+            .baton_renew(&grant.baton_id, Some(5), &holder)
+            .unwrap_err();
+        assert_eq!(err.code, "baton_renewal_limit");
+        assert_eq!(err.details["max_renewals"].as_i64(), Some(1));
+        let err = engine.baton_request(Some(5), None, &holder).unwrap_err();
+        assert_eq!(err.code, "baton_renewal_limit");
+        let status = engine.status().unwrap();
+        assert_eq!(status.baton_max_renewals, Some(1));
+        assert_eq!(status.baton.unwrap().renewals, 1);
+        engine.baton_release(&grant.baton_id, &holder).unwrap();
+        let fresh = engine.baton_request(Some(5), None, &holder).unwrap();
+        assert_eq!(fresh.renewals, 0);
+        assert_ne!(fresh.baton_id, grant.baton_id);
     }
 }
