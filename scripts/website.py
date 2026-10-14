@@ -30,6 +30,7 @@ FORBIDDEN = (
 NAV = (
     ("product", "/", "Product"),
     ("start", "/start.html", "Start"),
+    ("agents", "/agents.html", "Agents"),
     ("install", "/install.html", "Install"),
     ("architecture", "/architecture.html", "Architecture"),
     ("security", "/security.html", "Security"),
@@ -116,7 +117,57 @@ def release_rows(payload):
     return "\n".join(rows)
 
 
-def apply_tokens(body, payload, channel):
+def agent_spec():
+    onboarding = (ROOT / "skills" / "commonroom" / "onboarding.txt").read_text()
+    contract = json.loads((SRC / "contracts" / "room-launch.v1.json").read_text())
+    local = contract["modes"]["local"]
+    paste = local["agent_paste"]
+    return {
+        "skill_path": "/skills/commonroom/SKILL.md",
+        "adopt_path": "/skills/commonroom/ADOPT.md",
+        "skill_url": CANONICAL + "/skills/commonroom/SKILL.md",
+        "onboarding_path": "/prompts/workspace-onboarding.txt",
+        "onboarding": onboarding,
+        "serve_loopback": local["transports"]["loopback"]["command"],
+        "serve_tailcat": local["transports"]["tailcat"]["command"],
+        "ephemeral_flag": local["ephemeral"]["flag"],
+        "invite": local["invite_command"],
+        "paste_command": paste["command"],
+        "paste_args": paste["args"],
+    }
+
+
+def render_participant(spec):
+    return (
+        "Read the Complexity Eater skill before you edit. "
+        "Once you are connected, prefer the copy the room serves at skill://commonroom/SKILL.md. "
+        f"Before that, read {spec['skill_url']}.\n\n"
+        "Follow the workspace_onboarding prompt:\n\n"
+        f"{spec['onboarding'].rstrip()}\n\n"
+        "Connect with the local ce binary and leave it running.\n\n"
+        f"command: {spec['paste_command']}\n"
+        f"args: {json.dumps(spec['paste_args'])}\n\n"
+        "The invitation works once. Do not send it to this website. "
+        "Propose changes. Approval stays with the workspace owner.\n"
+    )
+
+
+def render_host(spec, file_name="notes.md", host_name="Ada", transport="loopback", ephemeral=False):
+    serve = spec["serve_tailcat"] if transport == "tailcat" else spec["serve_loopback"]
+    serve = serve.replace("{file}", file_name).replace("{name}", host_name)
+    if ephemeral:
+        serve = f"{serve} {spec['ephemeral_flag']}"
+    invite = spec["invite"].replace("{file}", file_name)
+    return (
+        "You are on the machine that will host the room. This website did not create it.\n\n"
+        f"{serve}\n\n"
+        f"{invite}\n\n"
+        "Give the joining agent the invitation printed by ce and the participant prompt. "
+        "Do not give them the owner URL. A default invitation cannot approve.\n"
+    )
+
+
+def apply_tokens(body, payload, channel, prompts):
     replacements = {
         "{{release.version}}": esc(payload["version"]),
         "{{release.tag}}": esc(payload["tag"]),
@@ -128,6 +179,8 @@ def apply_tokens(body, payload, channel):
         "{{release.image_digest_file}}": esc(payload["image_digest_file"]),
         "{{release.rows}}": release_rows(payload),
         "{{toolchain}}": esc(channel),
+        "{{participant_prompt}}": esc(prompts["participant"]),
+        "{{host_prompt}}": esc(prompts["host"]),
     }
     for token, value in replacements.items():
         body = body.replace(token, value)
@@ -199,10 +252,15 @@ def build():
     (DIST / "contracts").mkdir()
     payload = release_manifest()
     channel = toolchain()
+    spec = agent_spec()
+    prompts = {
+        "participant": render_participant(spec),
+        "host": render_host(spec),
+    }
     pages = []
     for path in sorted((SRC / "pages").glob("*.html")):
         meta, body = parse_page(path)
-        body = apply_tokens(body, payload, channel)
+        body = apply_tokens(body, payload, channel, prompts)
         document = layout(meta, body)
         name = "index.html" if meta["path"] == "/" else meta["path"].lstrip("/")
         target = DIST / name
@@ -219,6 +277,18 @@ def build():
     (DIST / "contracts" / "room-launch.v1.json").write_text(
         (SRC / "contracts" / "room-launch.v1.json").read_text()
     )
+    for name in ("SKILL.md", "ADOPT.md"):
+        source = ROOT / "skills" / "commonroom" / name
+        target = DIST / "skills" / "commonroom" / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(source.read_bytes())
+    onboarding_target = DIST / "prompts" / "workspace-onboarding.txt"
+    onboarding_target.parent.mkdir(parents=True, exist_ok=True)
+    onboarding_target.write_text(spec["onboarding"])
+    first_run = DIST / "agents" / "first-run.json"
+    first_run.parent.mkdir(parents=True, exist_ok=True)
+    published_spec = dict(spec)
+    first_run.write_text(json.dumps(published_spec, indent=2) + "\n")
     (DIST / "robots.txt").write_text((SRC / "robots.txt").read_text())
     (DIST / "_headers").write_text((SRC / "_headers").read_text())
     locs = []
@@ -440,6 +510,26 @@ def check(online):
     banner = DIST / "assets" / "ce-banner.png"
     if not banner.is_file() or banner.stat().st_size < 1000:
         fail("the banner asset was not copied into the site")
+    spec = agent_spec()
+    skill = ROOT / "skills" / "commonroom" / "SKILL.md"
+    adopt = ROOT / "skills" / "commonroom" / "ADOPT.md"
+    if (DIST / "skills" / "commonroom" / "SKILL.md").read_bytes() != skill.read_bytes():
+        fail("the published skill is not the room skill")
+    if (DIST / "skills" / "commonroom" / "ADOPT.md").read_bytes() != adopt.read_bytes():
+        fail("the published adoption skill drifted")
+    if (DIST / "prompts" / "workspace-onboarding.txt").read_text() != spec["onboarding"]:
+        fail("the published onboarding prompt drifted")
+    mcp_source = (ROOT / "crates" / "ce-http" / "src" / "mcp.rs").read_text()
+    if 'include_str!("../../../skills/commonroom/onboarding.txt")' not in mcp_source:
+        fail("the MCP onboarding prompt is not loaded from the published file")
+    agents = (DIST / "agents.html").read_text()
+    if esc(render_participant(spec)) not in agents or esc(render_host(spec)) not in agents:
+        fail("the agents page does not show the first-run prompts")
+    if "commonroom://join/" in agents and "commonroom://join/<" not in agents and "commonroom://join/..." not in agents:
+        fail("the agents page must not embed a live invitation")
+    first_run = json.loads((DIST / "agents" / "first-run.json").read_text())
+    if first_run["serve_loopback"] != spec["serve_loopback"] or first_run["paste_args"] != spec["paste_args"]:
+        fail("the first-run spec does not match the room-launch contract")
     index = (DIST / "index.html").read_text()
     if "Different minds. Shared work." not in index:
         fail("the tagline is missing from the home page")

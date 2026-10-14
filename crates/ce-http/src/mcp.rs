@@ -1323,17 +1323,4 @@ fn forward_listen(
     true
 }
 
-const ONBOARDING: &str = "\
-Work in this room in this order:
-1. Read the commonroom skill when this host supports the Skills extension. Otherwise follow the steps below.
-2. workspace_status
-3. workspace_summary
-4. workspace_read for one region
-5. workspace_checkout for that region
-6. workspace_propose against the base_version you just read
-7. Wait until the proposal is approved
-8. workspace_commit with the proposal_id
-9. workspace_release
-
-Propose changes. Approval stays with the workspace owner.
-";
+const ONBOARDING: &str = include_str!("../../../skills/commonroom/onboarding.txt");

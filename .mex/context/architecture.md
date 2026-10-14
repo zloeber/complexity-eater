@@ -37,7 +37,7 @@ last_updated: 2026-10-14
 - The session ingress is separate and accepts bearer tokens; `POST /mcp` is mounted only there.
 - Invitations are encoded with the `commonroom://join/` scheme and may point to loopback or a discovered transport.
 - A transport plugin is optional; a missing plugin surfaces as `transport_unavailable` rather than a public listener.
-- The public website in `website/` is static and separate. It prepares local `ce` commands from room-launch contract version 1 and does not upload a workspace or provision a hosted room.
+- The public website in `website/` is static and separate. It prepares local `ce` commands from room-launch contract version 1, publishes the commonroom skill and the `workspace_onboarding` prompt from `skills/commonroom/`, and does not upload a workspace or provision a hosted room.
 
 ## Important invariants
 - Authorization is derived from identity, not from JSON body values.

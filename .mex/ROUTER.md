@@ -28,7 +28,7 @@ Read .mex/AGENTS.md if you have not already. Then read this file fully before an
 - The default integration points are loopback listeners plus optional `tailcat` transport support from the CLI.
 - Live room updates are fanned through browser SSE, MCP resource subscriptions, and `subscriptions/listen`. Task and handoff state is durable in the sidecar. Listen streams are hints and are not replayed.
 - Current validation paths are `task check`, `task test`, `task e2e`, `task release`, `task supply-chain`, `task image-verify`, and `task website:check`.
-- The public website lives in `website/` and is a static front door for `complexityeater.com`. It does not call the workspace engine. GitHub Pages still publishes `docs/`. Hosted room provisioning is not implemented. The comparison is `docs/architecture/hosted-rooms.md`, and the local launch contract is `website/contracts/room-launch.v1.json`.
+- The public website lives in `website/` and is a static front door for `complexityeater.com`. It does not call the workspace engine. It publishes the commonroom skill, the adoption skill, and the `workspace_onboarding` prompt from `skills/commonroom/`. GitHub Pages still publishes `docs/`. Hosted room provisioning is not implemented. The comparison is `docs/architecture/hosted-rooms.md`, and the local launch contract is `website/contracts/room-launch.v1.json`.
 - Rust 1.99.0 is pinned. Release archives and the distroless image are scanned before publication. The container runs as UID 65532 and uses host networking because the process binds loopback only.
 
 ## Behavioural Contract

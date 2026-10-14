@@ -18,7 +18,7 @@ last_updated: 2026-10-14
 # Public website
 
 ## Context
-`website/` is a static front door for `https://complexityeater.com`. GitHub Pages still publishes `docs/`. The site prepares local `ce` commands from `website/contracts/room-launch.v1.json`. Hosted mode in that contract stays `not_implemented`.
+`website/` is a static front door for `https://complexityeater.com`. GitHub Pages still publishes `docs/`. The site prepares local `ce` commands from `website/contracts/room-launch.v1.json` and publishes the room skill plus the `workspace_onboarding` prompt from `skills/commonroom/`. Hosted mode in that contract stays `not_implemented`.
 
 ## Steps
 1. Edit pages in `website/pages/` and shared assets in `website/assets/`.
@@ -32,6 +32,7 @@ last_updated: 2026-10-14
 - Do not put invitation secrets, session ids, or API tokens in pages, query strings, or the repository.
 - `complexityeater.com` is already a Cloudflare zone. It does not resolve until the Pages custom domain is attached. Preview hostnames stay on `pages.dev`.
 - A `feat:` commit on `main` publishes a new `ce` release. A website-only change does not need that.
+- The published skill and onboarding prompt are copies of `skills/commonroom/`. Do not rewrite them on the page. The adoption skill stays off the MCP skill list.
 
 ## Verify
 - `task website:check` fetches the release archives named by the manifest.
