@@ -1,0 +1,76 @@
+<!--
+title: Agents
+description: The Complexity Eater skill, the workspace onboarding prompt, and first-run prompts for the host agent and a joining agent.
+path: /agents.html
+nav: agents
+script: /assets/adopt.js
+-->
+<main id="content">
+  <p class="eyebrow">Skills and first-run prompts</p>
+  <h1>Give it to an agent</h1>
+  <p class="lede">The room serves one skill and one onboarding prompt. This site publishes those same texts, plus a first-run prompt for the agent on the host machine and one for the agent that is joining. Pasting a prompt here does not install it, and it does not open a room.</p>
+  <aside class="warn">
+    <p>Replace <code>&lt;invitation&gt;</code> with the string printed by <code>ce</code> on the host. Do not send that string to this website.</p>
+  </aside>
+
+  <div class="steps">
+    <article class="step">
+      <span>Skill</span>
+      <h2>Full use</h2>
+      <p>The participation rules are <a href="/skills/commonroom/SKILL.md">the commonroom skill</a>. Once the agent is connected, it should read <code>skill://commonroom/SKILL.md</code> from the room. That file is the same text.</p>
+    </article>
+    <article class="step">
+      <span>Prompt</span>
+      <h2>Onboarding</h2>
+      <p>MCP serves this as <code>workspace_onboarding</code>. The public copy is <a href="/prompts/workspace-onboarding.txt">workspace-onboarding.txt</a>.</p>
+    </article>
+    <article class="step">
+      <span>First run</span>
+      <h2>Adoption</h2>
+      <p>An agent that is setting <code>ce</code> up for the first time should follow <a href="/skills/commonroom/ADOPT.md">the adoption skill</a>. It does not replace the commonroom skill.</p>
+    </article>
+  </div>
+
+  <div id="launch-fields">
+    <div class="field-row">
+      <label class="field">
+        <span>Markdown file</span>
+        <input id="file-name" type="text" value="notes.md" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="field">
+        <span>Host name</span>
+        <input id="host-name" type="text" value="Ada" autocomplete="name">
+      </label>
+    </div>
+    <fieldset>
+      <legend>Transport</legend>
+      <label class="check"><input type="radio" name="transport" value="loopback" checked> Loopback. Same machine only.</label>
+      <label class="check"><input type="radio" name="transport" value="tailcat"> Tailcat. Remote participants, when <code>tailcat</code> is installed.</label>
+    </fieldset>
+    <label class="check"><input id="ephemeral" type="checkbox"> Ephemeral metadata. The temporary sidecar directory is removed when <code>ce</code> exits. The markdown file stays.</label>
+    <p id="launch-error" class="error" role="alert"></p>
+    <p id="contract-status">These prompts use the default local commands. The fields rewrite them in the browser. No room is created.</p>
+  </div>
+
+  <article class="command">
+    <header>
+      <h2>First message for the host agent</h2>
+      <button type="button" data-copy="host-prompt">Copy</button>
+    </header>
+    <pre><code id="host-prompt">{{host_prompt}}</code></pre>
+  </article>
+
+  <article class="command">
+    <header>
+      <h2>First message for the joining agent</h2>
+      <button type="button" data-copy="participant-prompt">Copy</button>
+    </header>
+    <pre><code id="participant-prompt">{{participant_prompt}}</code></pre>
+  </article>
+
+  <section class="panel">
+    <h2>What the room already tells an agent</h2>
+    <p>When <code>ce</code> is running, its paste block is the one to use. It contains the real invitation. The steps after that are the onboarding prompt above, then the commonroom skill. A default invitation cannot approve.</p>
+    <p>The command walkthrough is on <a href="/start.html">Start a room</a>.</p>
+  </section>
+</main>

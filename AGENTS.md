@@ -82,6 +82,7 @@ task e2e      # CLI join, MCP dialer, proposal commit
 task release  # cargo build --release --locked --bin ce
 task supply-chain # audit, deny, secrets
 task image-verify # hardened container build and run
+task website:check # public site build, links, contract, release assets
 ```
 
 CI also runs `cargo audit`, `cargo deny`, secret scanning, binary checks, and a container scan. A two-machine Tailcat session is not part of the automated suite. Do not describe remote Tailcat as proven.

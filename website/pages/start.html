@@ -1,0 +1,92 @@
+<!--
+title: Start a room
+description: Generate local ce commands for a Complexity Eater room. The website does not create the room or receive the markdown file.
+path: /start.html
+nav: start
+script: /assets/start.js
+-->
+<main id="content">
+  <p class="eyebrow">Local handoff</p>
+  <h1>Start a room</h1>
+  <p class="lede">You start <code>ce</code> on the machine that has the markdown file. This page only prepares commands. It does not open a listener, upload a file, or mint an invitation.</p>
+  <aside class="warn">
+    <p>Opening this website does not provision a hosted room. There is no hosted provider in room-launch contract version 1.</p>
+  </aside>
+
+  <section class="panel">
+    <h2>Who hosts, and who connects</h2>
+    <p>The <code>ce</code> process is the room. It binds <code>127.0.0.1</code> twice. The human page, printed as <code>Human:</code>, sets the HttpOnly cookie <code>commonroom_session</code>. That owner port is not published to other machines.</p>
+    <p>The session ingress is the other port. Agents use it after they redeem an invitation. Give them the <code>commonroom://join/…</code> string from the <code>ce</code> process. Do not hand out a transport address, and do not paste that invitation into this website.</p>
+    <p id="transport-reach">A loopback room stays on the machine running <code>ce</code>. A remote participant needs the Tailcat plugin.</p>
+  </section>
+
+  <div id="launch-fields">
+    <div class="field-row">
+      <label class="field">
+        <span>Markdown file</span>
+        <input id="file-name" type="text" name="file" value="notes.md" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="field">
+        <span>Your name</span>
+        <input id="host-name" type="text" name="name" value="Ada" autocomplete="name">
+      </label>
+      <label class="field">
+        <span>Agent name</span>
+        <input id="agent-name" type="text" name="agent" value="Agent" autocomplete="off">
+      </label>
+    </div>
+    <fieldset>
+      <legend>Transport</legend>
+      <label class="check"><input type="radio" name="transport" value="loopback" checked> Loopback. Same machine only.</label>
+      <label class="check"><input type="radio" name="transport" value="tailcat"> Tailcat. Remote participants, when <code>tailcat</code> is installed.</label>
+    </fieldset>
+    <label class="check"><input id="ephemeral" type="checkbox"> Ephemeral metadata. The temporary sidecar directory is removed when <code>ce</code> exits. The markdown file stays.</label>
+    <p id="launch-error" class="error" role="alert"></p>
+    <p id="contract-status">These are the default local commands. Updating the fields rewrites them in the browser after the launch contract loads.</p>
+  </div>
+
+  <article class="command">
+    <header>
+      <h2>1. Host the room</h2>
+      <button type="button" data-copy="cmd-serve">Copy</button>
+    </header>
+    <pre><code id="cmd-serve">ce notes.md --name Ada</code></pre>
+    <p><code>ce notes.md</code> is the same as <code>ce serve notes.md</code>. The process prints <code>Human:</code> and <code>Invite:</code>. If you chose Tailcat and the plugin is missing, <code>ce</code> exits with <code>transport_unavailable</code> and does not open a public listener.</p>
+  </article>
+
+  <article class="command">
+    <header>
+      <h2>2. Invite from that machine</h2>
+      <button type="button" data-copy="cmd-invite">Copy</button>
+    </header>
+    <pre><code id="cmd-invite">ce invite --workspace notes.md</code></pre>
+    <p>The default invitation grants <code>read</code>, <code>observe</code>, <code>propose</code>, <code>checkout</code>, and <code>commit</code>. It does not grant <code>approve</code>, <code>invite</code>, or <code>admin</code>. It expires in 60 minutes and works once. A failed dial does not spend it.</p>
+  </article>
+
+  <article class="command">
+    <header>
+      <h2>3. Join from the other process</h2>
+      <button type="button" data-copy="cmd-join">Copy</button>
+    </header>
+    <pre><code id="cmd-join">ce join '&lt;invitation&gt;' --name Agent --json --no-hold</code></pre>
+    <p>Replace <code>&lt;invitation&gt;</code> with the string from the host process. Keep the quotes. Joining spends the invitation.</p>
+  </article>
+
+  <article class="command">
+    <header>
+      <h2>4. Speak MCP</h2>
+      <button type="button" data-copy="cmd-mcp">Copy</button>
+    </header>
+    <pre><code id="cmd-mcp">ce mcp --invite '&lt;invitation&gt;' --name Agent</code></pre>
+    <p>The room's own paste block looks like this. The binary fills in the real invitation when the room is running:</p>
+    <pre><code id="cmd-paste">command: ce
+args: ["mcp", "--invite", "&lt;invitation&gt;"]</code></pre>
+    <p>MCP revision <code>2026-07-28</code> is the only accepted version. The owner port does not serve <code>/mcp</code>. The first message for that agent, and the skill it should read, are on <a href="/agents.html">Agents</a>.</p>
+  </article>
+
+  <section class="panel">
+    <h2>Tailcat</h2>
+    <p>Install the plugin from <a href="https://github.com/tailscale/tailcat#install">tailscale/tailcat</a>. <code>--tailcat</code> publishes the session ingress. It does not publish the owner port. A two-machine Tailcat session is not part of this repository's automated test suite.</p>
+    <p>The versioned contract is <a href="/contracts/room-launch.v1.json">room-launch contract version 1</a>. Its hosted mode is <code>not_implemented</code>.</p>
+  </section>
+</main>

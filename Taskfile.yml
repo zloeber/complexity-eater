@@ -77,3 +77,19 @@ tasks:
     desc: Run the full Rust parity suite
     cmds:
       - cargo test --workspace --locked
+
+  website:build:
+    desc: Build the public website into website/dist
+    cmds:
+      - zsh scripts/build-website.zsh
+
+  website:check:
+    desc: Build the public website and check links, contract, and release assets
+    cmds:
+      - zsh scripts/check-website.zsh
+
+  website:preview:
+    desc: Serve the public website on 127.0.0.1:4173
+    cmds:
+      - zsh scripts/build-website.zsh
+      - python3 -m http.server 4173 --bind 127.0.0.1 --directory website/dist

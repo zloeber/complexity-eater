@@ -1,0 +1,44 @@
+{
+  "version": "0.2.1",
+  "tag": "v0.2.1",
+  "release_page": "https://github.com/zloeber/complexity-eater/releases/tag/v0.2.1",
+  "releases_index": "https://github.com/zloeber/complexity-eater/releases",
+  "checksums": "https://github.com/zloeber/complexity-eater/releases/download/v0.2.1/SHA256SUMS",
+  "image": "ghcr.io/zloeber/complexity-eater:v0.2.1",
+  "image_digest": "sha256:e762a4440851acecf389587d4750b2e236e6e4365329dac4434f31bb22bfcb92",
+  "image_digest_file": "https://github.com/zloeber/complexity-eater/releases/download/v0.2.1/image-digest.txt",
+  "archives": [
+    {
+      "id": "macos-aarch64",
+      "os": "macOS",
+      "cpu": "Apple silicon",
+      "file": "ce-macos-aarch64.tar.gz",
+      "url": "https://github.com/zloeber/complexity-eater/releases/download/v0.2.1/ce-macos-aarch64.tar.gz"
+    },
+    {
+      "id": "macos-x86_64",
+      "os": "macOS",
+      "cpu": "Intel",
+      "file": "ce-macos-x86_64.tar.gz",
+      "url": "https://github.com/zloeber/complexity-eater/releases/download/v0.2.1/ce-macos-x86_64.tar.gz"
+    },
+    {
+      "id": "linux-x86_64",
+      "os": "Linux",
+      "cpu": "x86_64",
+      "file": "ce-linux-x86_64.tar.gz",
+      "url": "https://github.com/zloeber/complexity-eater/releases/download/v0.2.1/ce-linux-x86_64.tar.gz"
+    },
+    {
+      "id": "linux-aarch64",
+      "os": "Linux",
+      "cpu": "aarch64",
+      "file": "ce-linux-aarch64.tar.gz",
+      "url": "https://github.com/zloeber/complexity-eater/releases/download/v0.2.1/ce-linux-aarch64.tar.gz"
+    }
+  ],
+  "unpublished": [
+    "Windows binaries",
+    "Homebrew"
+  ]
+}

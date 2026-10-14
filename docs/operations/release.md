@@ -43,6 +43,10 @@ Each archive contains a single executable named `ce`. The workflow scans those a
 
 The container profile is on the [container page](container.md).
 
+## Public website
+
+The install page on the public site names one published tag. The manifest is `website/releases/`. After a release's archives and `image-digest.txt` are attached, update that manifest to the new tag's real URLs and digest, then run `task website:check`. The check fails when an archive URL or the digest file does not match.
+
 ## Upgrade
 
 Keep the markdown file where it is, and keep the `.commonroom.db` sidecar beside it. Invitations use `commonroom://join/`. A spent or expired invitation still fails. There is no hosted account to move.

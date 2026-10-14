@@ -1,0 +1,63 @@
+{
+  "contract": "commonroom.room-launch",
+  "version": "1",
+  "canonical_site": "https://complexityeater.com",
+  "transmits_workspace": false,
+  "provisions_room": false,
+  "modes": {
+    "local": {
+      "status": "available",
+      "host": {
+        "process": "ce",
+        "equivalent": [
+          "ce {file} --name {name}",
+          "ce serve {file} --name {name}"
+        ],
+        "binds": "127.0.0.1",
+        "owner_port_cookie": "commonroom_session",
+        "ingress": "bearer token after join",
+        "mcp_path": "/mcp",
+        "mcp_revision": "2026-07-28"
+      },
+      "transports": {
+        "loopback": {
+          "status": "available",
+          "remote_participants": false,
+          "command": "ce {file} --name {name}"
+        },
+        "tailcat": {
+          "status": "available",
+          "remote_participants": true,
+          "plugin": "tailcat",
+          "install_url": "https://github.com/tailscale/tailcat#install",
+          "command": "ce {file} --name {name} --tailcat",
+          "missing_plugin": "transport_unavailable",
+          "publishes": "ingress",
+          "does_not_publish": "owner"
+        }
+      },
+      "ephemeral": {
+        "flag": "--ephemeral",
+        "deletes": "temporary sidecar directory on process exit",
+        "keeps": "the markdown file"
+      },
+      "invite_command": "ce invite --workspace {file}",
+      "join_command": "ce join '<invitation>' --name {agent} --json --no-hold",
+      "mcp_command": "ce mcp --invite '<invitation>' --name {agent}",
+      "agent_paste": {
+        "command": "ce",
+        "args": ["mcp", "--invite", "<invitation>"]
+      },
+      "default_capabilities": ["read", "observe", "propose", "checkout", "commit"],
+      "withheld_capabilities": ["approve", "invite", "admin"],
+      "invitation_prefix": "commonroom://join/",
+      "invitation_uses": 1,
+      "failed_dial_spends_invitation": false
+    },
+    "hosted": {
+      "status": "not_implemented",
+      "provisions_room": false,
+      "provider_endpoint": null
+    }
+  }
+}
