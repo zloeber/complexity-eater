@@ -18,13 +18,16 @@ The metadata database is `<substrate>.commonroom.db` next to the file, unless `-
 
 | Flag | Meaning |
 | --- | --- |
-| `--host` | Must be `127.0.0.1`, `localhost`, or `::1`. The sockets still bind `127.0.0.1`. |
+| `--host` | `127.0.0.1` and `localhost` bind `127.0.0.1`. `::1` binds `[::1]`. Anything else is refused. |
 | `--port` | Owner page port. `0` chooses an ephemeral port and prints it. |
 | `--name` | Host participant name. Defaults to `USER` or `USERNAME`, then `host`. |
 | `--tailcat` | Publish the ingress with the Tailcat plugin. |
 | `--transport` | Plugin name. Wins over `--tailcat` when both are set. |
 | `--json` | Structured output for commands that support it. |
 | `--ephemeral` | Temporary metadata database. |
+| `--mode` | `review` (default) or `baton`. Baton lets the holder write without approval. |
+| `--baton-max-minutes` | Cap on one grant or renewal. Default 15. Zero is refused. |
+| `--baton-default-minutes` | Grant when a request omits a duration. Must be at most the max. |
 
 `CE_TAILCAT` and `COMMONROOM_TAILCAT` select the Tailcat executable. The default name is `tailcat` on `PATH`.
 

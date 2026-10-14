@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use ce_core::WorkspaceEngine;
-use ce_http::{create_router, Access};
+use ce_http::{create_router, create_router_with, Access, OwnerGate};
 use ce_protocol::{Limits, MCP_PROTOCOL_VERSION, SKILL_URI};
 use futures_util::StreamExt;
 use serde_json::json;
@@ -1007,6 +1007,92 @@ async fn handoff_survives_restart_and_notifies_only_authorized_subscribers() {
     let stored = reopened.get_handoff(&handoff_id).unwrap();
     assert_eq!(stored.result_text.as_deref(), Some("shipped the note"));
     let _ = dir;
+}
+
+fn raw_http(port: u16, request: &str) -> String {
+    use std::io::{Read, Write};
+    let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    stream.write_all(request.as_bytes()).unwrap();
+    let mut body = String::new();
+    let _ = stream.read_to_string(&mut body);
+    body
+}
+
+#[tokio::test]
+async fn owner_listener_keeps_the_host_session_on_the_printed_token() {
+    let (_dir, engine) = engine("# Doc\n\n## Plan\n\nold\n");
+    let host = engine.ensure_host("Ada", "local").unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (gate, secret) = OwnerGate::issue(port);
+    let router = create_router_with(
+        Arc::clone(&engine),
+        Access::Owner,
+        Some(host),
+        Some(Arc::new(gate)),
+    );
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, router).await;
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let foreign = tokio::task::spawn_blocking(move || {
+        raw_http(
+            port,
+            &format!("GET / HTTP/1.1\r\nHost: evil.example:{port}\r\nConnection: close\r\n\r\n"),
+        )
+    })
+    .await
+    .unwrap();
+    assert!(foreign.starts_with("HTTP/1.1 400"), "{foreign}");
+    assert!(!foreign.to_ascii_lowercase().contains("set-cookie"));
+    let bare = tokio::task::spawn_blocking(move || {
+        raw_http(
+            port,
+            &format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"),
+        )
+    })
+    .await
+    .unwrap();
+    assert!(bare.starts_with("HTTP/1.1 200"), "{bare}");
+    assert!(!bare.to_ascii_lowercase().contains("set-cookie"));
+    let opened = tokio::task::spawn_blocking(move || {
+        raw_http(
+            port,
+            &format!(
+                "GET /?token={secret} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+            ),
+        )
+    })
+    .await
+    .unwrap();
+    assert!(opened.starts_with("HTTP/1.1 303"), "{opened}");
+    assert!(opened.to_ascii_lowercase().contains("set-cookie"));
+    let cookie = opened
+        .lines()
+        .find(|line| line.to_ascii_lowercase().starts_with("set-cookie:"))
+        .unwrap()
+        .split_once(':')
+        .unwrap()
+        .1
+        .split(';')
+        .next()
+        .unwrap()
+        .trim()
+        .to_string();
+    let denied = tokio::task::spawn_blocking(move || {
+        raw_http(
+            port,
+            &format!(
+                "POST /workspace/invite HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: http://evil.example:{port}\r\nCookie: {cookie}\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}"
+            ),
+        )
+    })
+    .await
+    .unwrap();
+    assert!(denied.starts_with("HTTP/1.1 403"), "{denied}");
 }
 
 fn collect_listen(url: String, bearer: String, body: serde_json::Value) -> Arc<Mutex<String>> {

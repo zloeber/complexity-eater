@@ -10,7 +10,7 @@ edges:
     condition: when verifying operational assumptions and supported environments
   - target: ../patterns/handoff-tasks.md
     condition: when the handoff and task split needs the operational steps
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # Architectural Decisions
@@ -43,4 +43,24 @@ last_updated: 2026-10-13
 ## 2026-10-13 — Supply-chain controls sit beside the release, not in the engine
 - Rationale: Binary, image, and dependency hardening should use the existing Taskfile, lockfile, and GitHub release workflow. Room authorization stays in the engine.
 - Impact: Rust 1.99.0 is pinned. `cargo deny` enforces the license and source policy. Release archives are scanned before upload. The container is distroless, runs as UID 65532, and uses host networking because `ce` only binds loopback. Attestations record the workflow and commit. They are not a claim that the bytes are free of vulnerabilities.
+- Status: Active
+
+## 2026-10-14 — A proposal replaces its region unless the caller opts into the whole document
+- Rationale: Leasing a heading and then writing `change.content` over the entire file dropped every other region. Callers that mean the whole document can say so.
+- Impact: `target` is the section when `change.section` is absent. `change.mode` of `document`, or a target of `workspace` or `*`, replaces the file. A `change.section` that resolves to a different path is `invalid_request`. A later commit rebases a proposal whose region does not overlap the edit and conflicts only on overlap. Bare titles that match more than one heading return `invalid_region` with `details.candidates`.
+- Status: Active
+
+## 2026-10-14 — The host session is bound to the printed loopback URL
+- Rationale: Setting `commonroom_session` on every `GET /` let a non-loopback `Host` or a cross-site page receive the host capability.
+- Impact: The owner listener allows `127.0.0.1`, `localhost`, and `[::1]` with the bound port. The Human URL includes a one-time token. Only that exchange sets the cookie, then redirects to `/`. Mutating owner routes reject `Sec-Fetch-Site: cross-site` and any `Origin` other than the loopback owner URL. `--host ::1` binds `[::1]`. Anything else still refuses a non-loopback bind.
+- Status: Active
+
+## 2026-10-14 — Room mode is review or baton, stored beside the document
+- Rationale: Some rooms want a single writer for a short stretch without turning the default invitation into an approver. The markdown file stays the artifact either way.
+- Impact: `ce serve --mode review|baton` defaults to review. Baton duration is capped (`--baton-max-minutes`, default 15; zero is refused). The holder writes one region with `workspace_write`. Other checkouts and writes see `baton_held`. Reads stay open. `workspace_propose` remains the advisory path and still needs approval to commit. Mode changes and revoke require `admin`. A baton commit records `baton_id` on `change.committed`. Revert appends a new version. Default invitations do not gain `approve`, `invite`, or `admin`.
+- Status: Active
+
+## 2026-10-14 — Release provenance is the version tag
+- Rationale: Dispatching the binary workflow on `main` recorded `refs/heads/main`, so a verifier pinning the tag ref failed.
+- Impact: After semantic-release tags `vX.Y.Z`, the dispatch uses that tag ref. The install page documents `gh attestation verify` next to `SHA256SUMS`.
 - Status: Active

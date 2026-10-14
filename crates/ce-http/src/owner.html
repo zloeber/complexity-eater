@@ -46,8 +46,16 @@
       <button id="theme" type="button">Dark mode</button>
     </div>
     <p>Version <strong id="version">Loading</strong> · <span id="lifecycle"></span> · <span id="updates">connecting</span></p>
+    <p id="mode-banner" class="meta">Loading</p>
     <p id="notice" class="meta"></p>
   </header>
+  <section>
+    <h2>Room mode</h2>
+    <p class="meta">Review asks for approval. Baton lets the holder write directly until the grant expires.</p>
+    <button id="mode-review" type="button">Use review</button>
+    <button id="mode-baton" type="button">Use baton</button>
+    <button id="revoke-baton" type="button">Revoke baton</button>
+  </section>
   <section>
     <h2>Connection</h2>
     <p id="connection" class="meta">Loading</p>
@@ -74,6 +82,10 @@
   <section>
     <h2>Outline</h2>
     <ul id="outline"></ul>
+  </section>
+  <section>
+    <h2>Recent commits</h2>
+    <div id="commits"></div>
   </section>
   <section>
     <h2>Recent events</h2>
@@ -178,6 +190,23 @@ function renderProposals(proposals) {
     meta.className = "meta";
     meta.textContent = proposal.status + " · base v" + proposal.base_version + " · " + proposal.target;
     card.append(title, meta);
+    if (proposal.whole_document) {
+      const flag = document.createElement("p");
+      flag.className = "meta";
+      flag.textContent = "Whole-document replacement";
+      card.append(flag);
+    }
+    if (proposal.deletes_regions) {
+      const flag = document.createElement("p");
+      flag.className = "meta";
+      flag.textContent = "Deletes a large amount of the document.";
+      card.append(flag);
+    }
+    if (proposal.diff) {
+      const diff = document.createElement("pre");
+      diff.textContent = proposal.diff;
+      card.append(diff);
+    }
     if (proposal.status === "pending") {
       const approve = document.createElement("button");
       approve.type = "button";
@@ -233,6 +262,86 @@ function renderLeases(room) {
     }
   }
 }
+function renderMode(room) {
+  const status = room.status || {};
+  const baton = status.baton;
+  let text = "Mode " + (status.mode || "review") + " · max " + (status.baton_max_minutes || 15) + " minutes";
+  if (baton) text += " · " + baton.holder + " until " + baton.expires_at;
+  else text += " · no baton held";
+  document.getElementById("mode-banner").textContent = text;
+}
+async function setMode(mode) {
+  notice.textContent = "";
+  localAction = true;
+  try {
+    await call("/workspace/mode", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({mode}),
+    });
+    await load(new Set(["all"]));
+  } catch (error) {
+    notice.textContent = error.message;
+    localAction = false;
+  }
+}
+async function revokeBaton() {
+  notice.textContent = "";
+  localAction = true;
+  try {
+    await call("/workspace/baton/revoke", {method: "POST"});
+    await load(new Set(["all"]));
+  } catch (error) {
+    notice.textContent = error.message;
+    localAction = false;
+  }
+}
+async function revertTo(version) {
+  notice.textContent = "";
+  localAction = true;
+  try {
+    await call("/workspace/revert", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({version}),
+    });
+    await load(new Set(["all"]));
+  } catch (error) {
+    notice.textContent = error.message;
+    localAction = false;
+  }
+}
+function renderCommits(room) {
+  const root = document.getElementById("commits");
+  root.replaceChildren();
+  const commits = room.commits || [];
+  if (!commits.length) {
+    root.textContent = "No commits yet.";
+    return;
+  }
+  for (const commit of commits) {
+    const card = document.createElement("div");
+    card.style.padding = "8px 0";
+    card.style.borderTop = "1px solid var(--line)";
+    const title = document.createElement("strong");
+    title.textContent = "v" + commit.version + " · " + commit.summary;
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = (commit.participant_id || "external") + (commit.baton_id ? " · baton " + commit.baton_id : "");
+    card.append(title, meta);
+    if (commit.diff) {
+      const diff = document.createElement("pre");
+      diff.textContent = commit.diff;
+      card.append(diff);
+    }
+    const revert = document.createElement("button");
+    revert.type = "button";
+    revert.textContent = "Revert to v" + commit.version;
+    revert.addEventListener("click", () => revertTo(commit.version));
+    card.append(revert);
+    root.append(card);
+  }
+}
 function renderOutline(room) {
   const outline = document.getElementById("outline");
   const headings = room.summary.outline || [];
@@ -275,23 +384,28 @@ async function load(scopes) {
   const listener = room.diagnostics.listener || {};
   const encrypted = listener.encrypted ? "encrypted" : "not encrypted";
   text("connection", (listener.type || "local") + " · " + (listener.mode || "local") + " · " + encrypted);
+  renderMode(room);
   if (everything || scopes.has("participants")) renderPeople(room);
   if (everything || scopes.has("leases")) renderLeases(room);
   if (everything || scopes.has("proposals")) renderProposals(room.proposals);
-  if (everything || scopes.has("document")) renderOutline(room);
+  if (everything || scopes.has("document")) {
+    renderOutline(room);
+    renderCommits(room);
+  }
   renderEvents(room);
 }
 function scopeFor(event) {
   const type = event.event_type || "";
   if (type.indexOf("proposal.") === 0) return "proposals";
-  if (type === "change.committed" || type === "workspace.created") return "document";
+  if (type === "change.committed" || type === "workspace.created" || type.indexOf("baton.") === 0 || type === "room.mode_changed") return "document";
   if (type.indexOf("lease.") === 0) return "leases";
   if (type.indexOf("participant.") === 0 || type.indexOf("session.") === 0) return "participants";
   return "all";
 }
 function editing() {
   const active = document.activeElement;
-  return active && active.tagName === "BUTTON" && active.id !== "theme" && active.id !== "create-invite";
+  const ignored = ["theme", "create-invite", "mode-review", "mode-baton", "revoke-baton"];
+  return active && active.tagName === "BUTTON" && ignored.indexOf(active.id) === -1;
 }
 function schedule(scope) {
   if (scope === "all") {
@@ -359,6 +473,9 @@ async function removeParticipant(participantId) {
     notice.textContent = error.message;
   }
 }
+document.getElementById("mode-review").addEventListener("click", () => setMode("review"));
+document.getElementById("mode-baton").addEventListener("click", () => setMode("baton"));
+document.getElementById("revoke-baton").addEventListener("click", () => revokeBaton());
 document.getElementById("create-invite").addEventListener("click", async () => {
   notice.textContent = "";
   try {

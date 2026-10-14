@@ -4,11 +4,11 @@ use std::time::Duration;
 
 use base64::Engine;
 use ce_protocol::{
-    capabilities_from_permissions, encode_invitation, has_capability, internal_error,
-    invalid_region, invalid_request, invitation_expired, invitation_redeemed, invitation_revoked,
-    lease_conflict, limit_exceeded, normalize_capabilities, permission_denied, proposal_conflict,
-    proposal_not_found, session_expired, stale_version, unauthorized, version_not_found,
-    CommonroomError, Limits,
+    baton_expired, baton_held, baton_required, capabilities_from_permissions, encode_invitation,
+    has_capability, internal_error, invalid_request, invitation_expired, invitation_redeemed,
+    invitation_revoked, lease_conflict, limit_exceeded, mode_mismatch, normalize_capabilities,
+    permission_denied, proposal_conflict, proposal_not_found, session_expired, stale_version,
+    unauthorized, version_not_found, CommonroomError, Limits,
 };
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -18,10 +18,11 @@ use sha2::{Digest, Sha256};
 
 use crate::bus::EventBus;
 use crate::events::{
-    compose_event, redact_event_payload, Event, ARTIFACT_CHANGED, INVITE_CREATED, INVITE_REVOKED,
-    LEASE_ACQUIRED, LEASE_EXPIRED, LEASE_RELEASED, PARTICIPANT_JOINED, PARTICIPANT_LEFT,
-    PROPOSAL_APPROVED, PROPOSAL_COMMITTED, PROPOSAL_CONFLICTED, PROPOSAL_CREATED,
-    PROPOSAL_REJECTED, PROPOSAL_SUPERSEDED, SESSION_CREATED, SESSION_EXPIRED, WORKSPACE_CREATED,
+    compose_event, redact_event_payload, Event, ARTIFACT_CHANGED, BATON_EXPIRED, BATON_GRANTED,
+    BATON_RELEASED, BATON_RENEWED, BATON_REVOKED, INVITE_CREATED, INVITE_REVOKED, LEASE_ACQUIRED,
+    LEASE_EXPIRED, LEASE_RELEASED, PARTICIPANT_JOINED, PARTICIPANT_LEFT, PROPOSAL_APPROVED,
+    PROPOSAL_COMMITTED, PROPOSAL_CONFLICTED, PROPOSAL_CREATED, PROPOSAL_REJECTED,
+    PROPOSAL_SUPERSEDED, ROOM_MODE_CHANGED, SESSION_CREATED, SESSION_EXPIRED, WORKSPACE_CREATED,
     WORKSPACE_STARTED, WORKSPACE_STOPPED,
 };
 use crate::markdown::{self, Heading};
@@ -272,7 +273,11 @@ pub struct Status {
     pub participants: usize,
     pub active_leases: usize,
     pub pending_proposals: usize,
-    pub heading_tree: Vec<Region>,
+    pub heading_count: usize,
+    pub mode: String,
+    pub baton_max_minutes: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub baton: Option<BatonView>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -282,6 +287,18 @@ pub struct ReadResult {
     pub section: Option<String>,
     pub content: String,
     pub truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub continuation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_offset: Option<i64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct RegionPage {
+    pub regions: Vec<Region>,
+    pub heading_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<i64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -348,6 +365,12 @@ pub struct Proposal {
     pub change: Value,
     pub status: String,
     pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diff: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub whole_document: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deletes_regions: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -417,6 +440,37 @@ pub struct DiagnosticParticipant {
 pub struct Diagnostics {
     pub listener: Value,
     pub participants: Vec<DiagnosticParticipant>,
+    pub mode: String,
+    pub baton_max_minutes: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub baton: Option<BatonView>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BatonView {
+    pub baton_id: String,
+    pub holder: String,
+    pub participant_id: String,
+    pub expires_at: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BatonGrant {
+    pub baton_id: String,
+    pub holder: String,
+    pub expires_at: String,
+    pub max_minutes: i64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct RecentCommit {
+    pub version: i64,
+    pub summary: String,
+    pub participant_id: Option<String>,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub baton_id: Option<String>,
+    pub diff: String,
 }
 
 struct EngineState {
@@ -533,8 +587,14 @@ impl WorkspaceEngine {
         self.lock().status()
     }
 
-    pub fn regions(&self) -> Result<Vec<Region>, CommonroomError> {
-        self.lock().regions()
+    pub fn regions_page(
+        &self,
+        depth: Option<i64>,
+        under: Option<&str>,
+        cursor: Option<i64>,
+        limit: Option<i64>,
+    ) -> Result<RegionPage, CommonroomError> {
+        self.lock().regions_page(depth, under, cursor, limit)
     }
 
     pub fn read(
@@ -543,7 +603,17 @@ impl WorkspaceEngine {
         max_lines: Option<i64>,
         max_bytes: Option<i64>,
     ) -> Result<ReadResult, CommonroomError> {
-        self.lock().read(section, max_lines, max_bytes)
+        self.read_with_offset(section, max_lines, max_bytes, None)
+    }
+
+    pub fn read_with_offset(
+        &self,
+        section: Option<&str>,
+        max_lines: Option<i64>,
+        max_bytes: Option<i64>,
+        offset: Option<i64>,
+    ) -> Result<ReadResult, CommonroomError> {
+        self.lock().read(section, max_lines, max_bytes, offset)
     }
 
     pub fn summary(
@@ -774,6 +844,79 @@ impl WorkspaceEngine {
     ) -> Result<(), CommonroomError> {
         self.lock().revoke_invite(token, invite_id)
     }
+
+    pub fn configure_room(
+        &self,
+        mode: &str,
+        baton_max_minutes: i64,
+        baton_default_minutes: i64,
+    ) -> Result<(), CommonroomError> {
+        self.lock()
+            .configure_room(mode, baton_max_minutes, baton_default_minutes)
+    }
+
+    pub fn set_room_mode(
+        &self,
+        mode: &str,
+        session: Option<&Session>,
+    ) -> Result<String, CommonroomError> {
+        self.lock().set_room_mode(mode, session)
+    }
+
+    pub fn baton_status(&self) -> Result<Value, CommonroomError> {
+        self.lock().baton_status()
+    }
+
+    pub fn baton_request(
+        &self,
+        minutes: Option<i64>,
+        reason: Option<&str>,
+        session: &Session,
+    ) -> Result<BatonGrant, CommonroomError> {
+        self.lock().baton_request(minutes, reason, session)
+    }
+
+    pub fn baton_renew(
+        &self,
+        baton_id: &str,
+        minutes: Option<i64>,
+        session: &Session,
+    ) -> Result<BatonGrant, CommonroomError> {
+        self.lock().baton_renew(baton_id, minutes, session)
+    }
+
+    pub fn baton_release(&self, baton_id: &str, session: &Session) -> Result<(), CommonroomError> {
+        self.lock().baton_release(baton_id, session)
+    }
+
+    pub fn baton_revoke(&self, session: &Session) -> Result<(), CommonroomError> {
+        self.lock().baton_revoke(session)
+    }
+
+    pub fn write_with_baton(
+        &self,
+        baton_id: &str,
+        target: &str,
+        base_version: i64,
+        summary: &str,
+        change: Value,
+        session: &Session,
+    ) -> Result<CommitResult, CommonroomError> {
+        self.lock()
+            .write_with_baton(baton_id, target, base_version, summary, change, session)
+    }
+
+    pub fn revert_to(
+        &self,
+        version: i64,
+        session: &Session,
+    ) -> Result<CommitResult, CommonroomError> {
+        self.lock().revert_to(version, session)
+    }
+
+    pub fn recent_commits(&self, limit: i64) -> Result<Vec<RecentCommit>, CommonroomError> {
+        self.lock().recent_commits(limit)
+    }
 }
 
 impl EngineState {
@@ -961,7 +1104,7 @@ impl EngineState {
         if disk == self.stored_content()? {
             return Ok(());
         }
-        self.append_version(None, "external substrate edit", &disk, false)?;
+        self.append_version(None, "external substrate edit", &disk, false, None)?;
         Ok(())
     }
 
@@ -976,6 +1119,7 @@ impl EngineState {
         summary: &str,
         content: &str,
         write_file: bool,
+        baton_id: Option<&str>,
     ) -> Result<CommitResult, CommonroomError> {
         let new_version = self.current_version()? + 1;
         if write_file {
@@ -1004,6 +1148,7 @@ impl EngineState {
                 "version": new_version,
                 "summary": summary,
                 "participant_id": participant_id,
+                "baton_id": baton_id,
             }),
         )?;
         Ok(CommitResult {
@@ -1023,12 +1168,9 @@ impl EngineState {
         if target == "workspace" || target == "*" {
             return Ok(());
         }
-        if markdown::span(&self.stored_content()?, target).is_none() {
-            return Err(
-                invalid_region(format!("section '{target}' not found")).detail("region", target)
-            );
-        }
-        Ok(())
+        markdown::locate(&self.stored_content()?, target)
+            .map(|_| ())
+            .map_err(|err| markdown::locate_error(target, err))
     }
 
     fn bound_limit(&self, limit: i64, max_items: Option<i64>) -> i64 {
@@ -1083,6 +1225,7 @@ impl EngineState {
     }
 
     fn status(&self) -> Result<Status, CommonroomError> {
+        let _ = self.expire_baton();
         let content = self.read_current()?;
         let proposals = self.proposals()?;
         Ok(Status {
@@ -1103,12 +1246,52 @@ impl EngineState {
                 .iter()
                 .filter(|item| item.status == "pending")
                 .count(),
-            heading_tree: regions_from(&markdown::headings(&content)),
+            heading_count: markdown::headings(&content).len(),
+            mode: self.room_mode()?,
+            baton_max_minutes: self.baton_max_minutes()?,
+            baton: self.current_baton()?,
         })
     }
 
-    fn regions(&self) -> Result<Vec<Region>, CommonroomError> {
-        Ok(regions_from(&markdown::headings(&self.read_current()?)))
+    fn regions_page(
+        &self,
+        depth: Option<i64>,
+        under: Option<&str>,
+        cursor: Option<i64>,
+        limit: Option<i64>,
+    ) -> Result<RegionPage, CommonroomError> {
+        let content = self.read_current()?;
+        let mut regions = regions_from(&markdown::headings(&content));
+        let heading_count = regions.len();
+        if let Some(depth) = depth {
+            regions.retain(|item| item.level as i64 <= depth);
+        }
+        if let Some(under) = under.filter(|value| !value.is_empty()) {
+            regions
+                .retain(|item| item.path == under || item.path.starts_with(&format!("{under}/")));
+        }
+        let start = cursor.unwrap_or(0).max(0) as usize;
+        let page_limit = limit.unwrap_or(32).clamp(1, 32) as usize;
+        let page = if start >= regions.len() {
+            Vec::new()
+        } else {
+            regions
+                .iter()
+                .skip(start)
+                .take(page_limit)
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        let next = start + page.len();
+        Ok(RegionPage {
+            regions: page,
+            heading_count,
+            next_cursor: if next < regions.len() {
+                Some(next as i64)
+            } else {
+                None
+            },
+        })
     }
 
     fn read(
@@ -1116,26 +1299,45 @@ impl EngineState {
         section: Option<&str>,
         max_lines: Option<i64>,
         max_bytes: Option<i64>,
+        offset: Option<i64>,
     ) -> Result<ReadResult, CommonroomError> {
         let content = self.read_current()?;
+        let section = section.filter(|value| !value.is_empty());
         let mut selected = content.clone();
         if let Some(section) = section {
-            let span = markdown::span(&content, section).ok_or_else(|| {
-                invalid_region(format!("section '{section}' not found")).detail("region", section)
-            })?;
-            selected = content
-                .lines()
-                .skip(span.0)
-                .take(span.1 - span.0)
-                .collect::<Vec<_>>()
-                .join("\n");
+            let span = markdown::locate(&content, section)
+                .map_err(|err| markdown::locate_error(section, err))?;
+            selected = content[span.start..span.end].to_string();
         }
-        let limited = markdown::limit_text(&selected, max_lines, max_bytes);
+        let unbounded = section.is_none() && max_lines.is_none() && max_bytes.is_none();
+        let max_lines = if unbounded { Some(200) } else { max_lines };
+        let max_bytes = if unbounded { Some(8_192) } else { max_bytes };
+        let start = offset.unwrap_or(0).max(0) as usize;
+        if start > 0 && start < selected.len() {
+            let mut from = start;
+            while from < selected.len() && !selected.is_char_boundary(from) {
+                from += 1;
+            }
+            selected = selected[from.min(selected.len())..].to_string();
+        } else if start >= selected.len() && start > 0 {
+            selected.clear();
+        }
+        let (limited, truncated) = markdown::limit_text(&selected, max_lines, max_bytes);
+        let next_offset = if truncated {
+            Some(offset.unwrap_or(0).max(0) + limited.len() as i64)
+        } else {
+            None
+        };
         Ok(ReadResult {
             workspace_id: self.workspace_id()?,
             version: self.current_version()?,
             section: section.map(str::to_string),
-            truncated: limited != selected,
+            truncated,
+            continuation: truncated.then(|| {
+                "pass section to read one region, or pass max_bytes and offset to continue"
+                    .to_string()
+            }),
+            next_offset,
             content: limited,
         })
     }
@@ -1165,7 +1367,7 @@ impl EngineState {
             workspace_id: self.workspace_id()?,
             version: self.current_version()?,
             outline,
-            excerpt: markdown::limit_text(&content, Some(max_lines), Some(max_bytes)),
+            excerpt: markdown::limit_text(&content, Some(max_lines), Some(max_bytes)).0,
         })
     }
 
@@ -1715,6 +1917,7 @@ impl EngineState {
         } else {
             participant_id.to_string()
         };
+        self.reject_if_baton_held_by_other(&participant_id)?;
         let duration = minutes.unwrap_or(self.limits.default_lease_minutes);
         if duration <= 0 {
             return Err(invalid_request("lease duration must be positive"));
@@ -1899,32 +2102,47 @@ impl EngineState {
     }
 
     fn proposals(&self) -> Result<Vec<Proposal>, CommonroomError> {
-        let conn = self.conn()?;
-        let mut stmt = conn
-            .prepare(
-                "SELECT proposal_id, workspace_id, participant_id, target, base_version, summary,
-                        change_json, status, created_at
-                 FROM proposals ORDER BY created_at DESC",
-            )
-            .db()?;
-        let rows = stmt
-            .query_map([], |row| {
-                let change: String = row.get(6)?;
-                Ok(Proposal {
-                    proposal_id: row.get(0)?,
-                    workspace_id: row.get(1)?,
-                    participant_id: row.get(2)?,
-                    target: row.get(3)?,
-                    base_version: row.get(4)?,
-                    summary: row.get(5)?,
-                    change: serde_json::from_str(&change).unwrap_or(Value::Null),
-                    status: row.get(7)?,
-                    created_at: row.get(8)?,
+        let mut rows = {
+            let conn = self.conn()?;
+            let mut stmt = conn
+                .prepare(
+                    "SELECT proposal_id, workspace_id, participant_id, target, base_version, summary,
+                            change_json, status, created_at
+                     FROM proposals ORDER BY created_at DESC",
+                )
+                .db()?;
+            let rows = stmt
+                .query_map([], |row| {
+                    let change: String = row.get(6)?;
+                    Ok(Proposal {
+                        proposal_id: row.get(0)?,
+                        workspace_id: row.get(1)?,
+                        participant_id: row.get(2)?,
+                        target: row.get(3)?,
+                        base_version: row.get(4)?,
+                        summary: row.get(5)?,
+                        change: serde_json::from_str(&change).unwrap_or(Value::Null),
+                        status: row.get(7)?,
+                        created_at: row.get(8)?,
+                        diff: None,
+                        whole_document: None,
+                        deletes_regions: None,
+                    })
                 })
-            })
-            .db()?
-            .collect::<Result<Vec<_>, _>>()
-            .db()?;
+                .db()?
+                .collect::<Result<Vec<_>, _>>()
+                .db()?;
+            rows
+        };
+        for proposal in &mut rows {
+            if proposal.status == "pending" || proposal.status == "approved" {
+                if let Ok(preview) = self.proposal_preview(proposal) {
+                    proposal.diff = Some(preview.diff);
+                    proposal.whole_document = Some(preview.whole_document);
+                    proposal.deletes_regions = Some(preview.deletes_regions);
+                }
+            }
+        }
         Ok(rows)
     }
 
@@ -1957,15 +2175,12 @@ impl EngineState {
         let _ = content;
         let encoded = serde_json::to_vec(&change).map_err(|err| internal_error(err.to_string()))?;
         if encoded.len() > self.limits.max_proposal_bytes {
-            return Err(limit_exceeded("proposal is too large"));
+            return Err(limit_exceeded("proposal is too large")
+                .detail("limit", self.limits.max_proposal_bytes)
+                .detail("size", encoded.len()));
         }
         self.sync_substrate()?;
-        self.validate_target(target)?;
-        if let Some(section) = change.get("section").and_then(Value::as_str) {
-            if !section.is_empty() {
-                self.validate_target(section)?;
-            }
-        }
+        self.prepare_change(target, &change, &self.stored_content()?)?;
         let proposal_id = next_id("proposal");
         let created_at = self.now_text();
         let current = self.current_version()?;
@@ -2110,45 +2325,99 @@ impl EngineState {
         if base_version != self.current_version()? {
             return Err(self.conflict(base_version, content)?);
         }
-        let payload = self.append_version(participant_id, summary, content, true)?;
-        self.supersede_pending(base_version)?;
+        let previous = self.stored_content()?;
+        let payload = self.append_version(participant_id, summary, content, true, None)?;
+        self.supersede_overlapping(&previous, content)?;
         Ok(payload)
     }
 
-    fn supersede_pending(&self, base_version: i64) -> Result<(), CommonroomError> {
-        let ids: Vec<String> = self.map_rows(
-            "SELECT proposal_id FROM proposals WHERE status = 'pending' AND base_version <= ?1",
-            params![base_version],
-            |row| row.get(0),
+    fn supersede_overlapping(&self, before: &str, after: &str) -> Result<(), CommonroomError> {
+        let pending: Vec<(String, String)> = self.map_rows(
+            "SELECT proposal_id, target FROM proposals WHERE status = 'pending'",
+            params![],
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
-        if ids.is_empty() {
-            return Ok(());
+        let mut ids = Vec::new();
+        for (proposal_id, target) in pending {
+            let path = self.region_path(after, &target).unwrap_or(target);
+            if markdown::regions_overlap(before, after, &path)
+                || markdown::locate(after, &path).is_err() && path != "workspace" && path != "*"
+            {
+                ids.push(proposal_id);
+            }
         }
-        self.conn()?
-            .execute(
-                "UPDATE proposals SET status = 'superseded' WHERE status = 'pending' AND base_version <= ?1",
-                params![base_version],
-            )
-            .db()?;
         for proposal_id in ids {
+            self.conn()?
+                .execute(
+                    "UPDATE proposals SET status = 'superseded' WHERE proposal_id = ?1 AND status = 'pending'",
+                    params![proposal_id],
+                )
+                .db()?;
             self.record(PROPOSAL_SUPERSEDED, json!({"proposal_id": proposal_id}))?;
         }
         Ok(())
     }
 
-    fn materialize(&self, change: &Value) -> Result<String, CommonroomError> {
-        let content = change
+    fn region_path(&self, content: &str, target: &str) -> Option<String> {
+        if target == "workspace" || target == "*" {
+            return Some(target.to_string());
+        }
+        markdown::locate(content, target)
+            .ok()
+            .map(|span| span.heading.path)
+    }
+
+    fn prepare_change(
+        &self,
+        target: &str,
+        change: &Value,
+        against: &str,
+    ) -> Result<PreparedChange, CommonroomError> {
+        let replacement = change
             .get("content")
             .and_then(Value::as_str)
             .ok_or_else(|| {
-                proposal_conflict("proposal change must contain string field 'content'")
+                invalid_request("proposal change must contain string field 'content'")
             })?;
-        if let Some(section) = change.get("section").and_then(Value::as_str) {
-            if !section.is_empty() {
-                return markdown::replace_section(&self.stored_content()?, section, content);
+        let section = change
+            .get("section")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty());
+        let mode = change.get("mode").and_then(Value::as_str).unwrap_or("");
+        let whole_document = mode == "document" || target == "workspace" || target == "*";
+        if whole_document {
+            if let Some(section) = section {
+                return Err(invalid_request(
+                    "change.section does not match a whole-document target",
+                )
+                .detail("region", section));
+            }
+            return Ok(PreparedChange {
+                content: replacement.to_string(),
+                whole_document: true,
+                region: None,
+            });
+        }
+        if let Some(section) = section {
+            let target_path = self
+                .region_path(against, target)
+                .ok_or_else(|| markdown::locate_error(target, markdown::LocateError::NotFound))?;
+            let section_path = self
+                .region_path(against, section)
+                .ok_or_else(|| markdown::locate_error(section, markdown::LocateError::NotFound))?;
+            if target_path != section_path {
+                return Err(invalid_request("change.section does not match target")
+                    .detail("region", target)
+                    .detail("candidates", vec![target_path, section_path]));
             }
         }
-        Ok(content.to_string())
+        let content = markdown::replace_section(against, target, replacement)?;
+        let region = self.region_path(against, target);
+        Ok(PreparedChange {
+            content,
+            whole_document: false,
+            region,
+        })
     }
 
     fn commit(
@@ -2191,16 +2460,16 @@ impl EngineState {
         } else {
             participant_id.to_string()
         };
-        let row: Option<(i64, String, String, String)> = self
+        let row: Option<(i64, String, String, String, String)> = self
             .conn()?
             .query_row(
-                "SELECT base_version, summary, change_json, status FROM proposals WHERE proposal_id = ?1",
+                "SELECT base_version, summary, change_json, status, target FROM proposals WHERE proposal_id = ?1",
                 params![proposal_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
             )
             .optional()
             .db()?;
-        let Some((base_version, summary, change_json, status)) = row else {
+        let Some((base_version, summary, change_json, status, target)) = row else {
             return Err(proposal_not_found("proposal not found").detail("proposal_id", proposal_id));
         };
         if status != "approved" {
@@ -2208,21 +2477,31 @@ impl EngineState {
                 .detail("proposal_id", proposal_id));
         }
         let change: Value = serde_json::from_str(&change_json).unwrap_or(Value::Null);
-        let content = self.materialize(&change)?;
-        let payload = match self.commit_content(Some(&actor), base_version, &summary, &content) {
-            Ok(payload) => payload,
-            Err(err) if err.code == "stale_version" => {
-                self.conn()?
-                    .execute(
-                        "UPDATE proposals SET status = 'conflicted' WHERE proposal_id = ?1",
-                        params![proposal_id],
-                    )
-                    .db()?;
-                self.record(PROPOSAL_CONFLICTED, json!({"proposal_id": proposal_id}))?;
-                return Err(err);
+        self.sync_substrate()?;
+        let current_version = self.current_version()?;
+        let current = self.stored_content()?;
+        let base_content = self
+            .version_content(base_version)
+            .unwrap_or_else(|_| current.clone());
+        let prepared = match self.prepare_change(&target, &change, &current) {
+            Ok(prepared) => prepared,
+            Err(err) if err.code == "invalid_region" && base_version != current_version => {
+                return self.conflict_proposal(proposal_id, base_version, "");
             }
             Err(err) => return Err(err),
         };
+        if base_version != current_version {
+            let path = prepared.region.clone().unwrap_or_else(|| target.clone());
+            let overlaps = prepared.whole_document
+                || markdown::regions_overlap(&base_content, &current, &path)
+                || self.region_path(&current, &target).is_none();
+            if overlaps {
+                return self.conflict_proposal(proposal_id, base_version, &prepared.content);
+            }
+        }
+        let previous = current;
+        let payload = self.append_version(Some(&actor), &summary, &prepared.content, true, None)?;
+        self.supersede_overlapping(&previous, &prepared.content)?;
         self.conn()?
             .execute(
                 "UPDATE proposals SET status = 'committed' WHERE proposal_id = ?1",
@@ -2234,6 +2513,505 @@ impl EngineState {
             json!({"proposal_id": proposal_id, "version": payload.version}),
         )?;
         Ok(payload)
+    }
+
+    fn version_content(&self, version: i64) -> Result<String, CommonroomError> {
+        self.conn()?
+            .query_row(
+                "SELECT content FROM versions WHERE version = ?1",
+                params![version],
+                |row| row.get(0),
+            )
+            .optional()
+            .db()?
+            .ok_or_else(|| {
+                version_not_found("version does not exist").detail("base_version", version)
+            })
+    }
+
+    fn conflict_proposal(
+        &self,
+        proposal_id: &str,
+        base_version: i64,
+        attempted: &str,
+    ) -> Result<CommitResult, CommonroomError> {
+        self.conn()?
+            .execute(
+                "UPDATE proposals SET status = 'conflicted' WHERE proposal_id = ?1",
+                params![proposal_id],
+            )
+            .db()?;
+        self.record(PROPOSAL_CONFLICTED, json!({"proposal_id": proposal_id}))?;
+        Err(self.conflict(base_version, attempted)?)
+    }
+
+    fn proposal_preview(&self, proposal: &Proposal) -> Result<ProposalPreview, CommonroomError> {
+        let base = self
+            .version_content(proposal.base_version)
+            .unwrap_or_default();
+        let prepared = self.prepare_change(&proposal.target, &proposal.change, &base)?;
+        let diff = cap_text(
+            &markdown::unified_diff(
+                &base,
+                &prepared.content,
+                &format!("v{}", proposal.base_version),
+                "proposal",
+            ),
+            24_000,
+        );
+        let before = markdown::headings(&base).len();
+        let after = markdown::headings(&prepared.content).len();
+        let removed = diff
+            .lines()
+            .filter(|line| line.starts_with('-') && !line.starts_with("---"))
+            .count();
+        Ok(ProposalPreview {
+            diff,
+            whole_document: prepared.whole_document,
+            deletes_regions: after < before || removed > 20,
+        })
+    }
+
+    fn configure_room(
+        &self,
+        mode: &str,
+        baton_max_minutes: i64,
+        baton_default_minutes: i64,
+    ) -> Result<(), CommonroomError> {
+        if mode != "review" && mode != "baton" {
+            return Err(invalid_request("mode must be review or baton"));
+        }
+        if baton_max_minutes <= 0 {
+            return Err(invalid_request("baton max minutes must be positive"));
+        }
+        if baton_default_minutes <= 0 || baton_default_minutes > baton_max_minutes {
+            return Err(invalid_request(
+                "baton default minutes must be positive and no greater than the max",
+            ));
+        }
+        self.set_meta("room_mode", mode)?;
+        self.set_meta("baton_max_minutes", &baton_max_minutes.to_string())?;
+        self.set_meta("baton_default_minutes", &baton_default_minutes.to_string())?;
+        Ok(())
+    }
+
+    fn set_room_mode(
+        &self,
+        mode: &str,
+        session: Option<&Session>,
+    ) -> Result<String, CommonroomError> {
+        if let Some(session) = session {
+            if !has_capability(&session.capabilities, "admin") {
+                return Err(permission_denied("session is missing the admin capability")
+                    .detail("required", "admin"));
+            }
+        }
+        if mode != "review" && mode != "baton" {
+            return Err(invalid_request("mode must be review or baton"));
+        }
+        let previous = self.room_mode()?;
+        self.set_meta("room_mode", mode)?;
+        if mode == "review" && previous == "baton" && self.baton_holder_id()?.is_some() {
+            self.clear_baton_record(BATON_REVOKED)?;
+        }
+        self.record(
+            ROOM_MODE_CHANGED,
+            json!({"mode": mode, "previous": previous}),
+        )?;
+        Ok(mode.to_string())
+    }
+
+    fn room_mode(&self) -> Result<String, CommonroomError> {
+        let mode = self.meta("room_mode")?.unwrap_or_else(|| "review".into());
+        if mode == "baton" {
+            Ok("baton".into())
+        } else {
+            Ok("review".into())
+        }
+    }
+
+    fn baton_max_minutes(&self) -> Result<i64, CommonroomError> {
+        Ok(self
+            .meta("baton_max_minutes")?
+            .and_then(|value| value.parse().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(15))
+    }
+
+    fn baton_default_minutes(&self) -> Result<i64, CommonroomError> {
+        let max = self.baton_max_minutes()?;
+        Ok(self
+            .meta("baton_default_minutes")?
+            .and_then(|value| value.parse().ok())
+            .filter(|value| *value > 0 && *value <= max)
+            .unwrap_or(max.min(15)))
+    }
+
+    fn baton_status(&self) -> Result<Value, CommonroomError> {
+        self.expire_baton()?;
+        let baton = self.current_baton()?;
+        Ok(json!({
+            "mode": self.room_mode()?,
+            "holder": baton.as_ref().map(|item| item.holder.clone()),
+            "participant_id": baton.as_ref().map(|item| item.participant_id.clone()),
+            "expires_at": baton.as_ref().map(|item| item.expires_at.clone()),
+            "baton_id": baton.as_ref().map(|item| item.baton_id.clone()),
+            "max_minutes": self.baton_max_minutes()?,
+        }))
+    }
+
+    fn baton_request(
+        &self,
+        minutes: Option<i64>,
+        reason: Option<&str>,
+        session: &Session,
+    ) -> Result<BatonGrant, CommonroomError> {
+        if !has_capability(&session.capabilities, "commit") {
+            return Err(
+                permission_denied("session is missing the commit capability")
+                    .detail("required", "commit"),
+            );
+        }
+        if self.room_mode()? != "baton" {
+            return Err(mode_mismatch("the room is not in baton mode").detail("mode", "review"));
+        }
+        if let Some(expired) = self.expire_baton()? {
+            let _ = expired;
+        }
+        if let Some(current) = self.current_baton()? {
+            if current.participant_id != session.participant_id {
+                return Err(baton_held("another participant holds the editing baton")
+                    .detail("holder", current.holder)
+                    .detail("expires_at", current.expires_at));
+            }
+            return self.baton_renew(&current.baton_id, minutes, session);
+        }
+        let granted = self.clamp_baton_minutes(minutes)?;
+        let baton_id = next_id("baton");
+        let expires_at = format_time(self.now() + chrono::Duration::minutes(granted));
+        self.set_meta("baton_id", &baton_id)?;
+        self.set_meta("baton_holder", &session.participant_id)?;
+        self.set_meta("baton_expires", &expires_at)?;
+        self.record(
+            BATON_GRANTED,
+            json!({
+                "baton_id": baton_id,
+                "participant_id": session.participant_id,
+                "expires_at": expires_at,
+                "reason": reason.unwrap_or(""),
+            }),
+        )?;
+        Ok(BatonGrant {
+            baton_id,
+            holder: session.name.clone(),
+            expires_at,
+            max_minutes: self.baton_max_minutes()?,
+        })
+    }
+
+    fn baton_renew(
+        &self,
+        baton_id: &str,
+        minutes: Option<i64>,
+        session: &Session,
+    ) -> Result<BatonGrant, CommonroomError> {
+        if !has_capability(&session.capabilities, "commit") {
+            return Err(
+                permission_denied("session is missing the commit capability")
+                    .detail("required", "commit"),
+            );
+        }
+        let expired = self.expire_baton()?;
+        if expired.as_deref() == Some(baton_id) {
+            return Err(baton_expired("editing baton has expired").detail("baton_id", baton_id));
+        }
+        let Some(current) = self.current_baton()? else {
+            return Err(baton_required("no editing baton is held").detail("baton_id", baton_id));
+        };
+        if current.baton_id != baton_id || current.participant_id != session.participant_id {
+            return Err(baton_held("another participant holds the editing baton")
+                .detail("holder", current.holder)
+                .detail("expires_at", current.expires_at)
+                .detail("baton_id", current.baton_id));
+        }
+        let granted = self.clamp_baton_minutes(minutes)?;
+        let expires_at = format_time(self.now() + chrono::Duration::minutes(granted));
+        self.set_meta("baton_expires", &expires_at)?;
+        self.record(
+            BATON_RENEWED,
+            json!({
+                "baton_id": baton_id,
+                "participant_id": session.participant_id,
+                "expires_at": expires_at,
+            }),
+        )?;
+        Ok(BatonGrant {
+            baton_id: baton_id.to_string(),
+            holder: current.holder,
+            expires_at,
+            max_minutes: self.baton_max_minutes()?,
+        })
+    }
+
+    fn baton_release(&self, baton_id: &str, session: &Session) -> Result<(), CommonroomError> {
+        if !has_capability(&session.capabilities, "commit") {
+            return Err(
+                permission_denied("session is missing the commit capability")
+                    .detail("required", "commit"),
+            );
+        }
+        let Some(current) = self.current_baton()? else {
+            return Ok(());
+        };
+        if current.baton_id != baton_id || current.participant_id != session.participant_id {
+            return Err(permission_denied("only the baton holder can release it")
+                .detail("baton_id", baton_id));
+        }
+        self.clear_baton_record(BATON_RELEASED)
+    }
+
+    fn baton_revoke(&self, session: &Session) -> Result<(), CommonroomError> {
+        if !has_capability(&session.capabilities, "admin") {
+            return Err(permission_denied("session is missing the admin capability")
+                .detail("required", "admin"));
+        }
+        if self.baton_holder_id()?.is_none() {
+            return Ok(());
+        }
+        self.clear_baton_record(BATON_REVOKED)
+    }
+
+    fn write_with_baton(
+        &self,
+        baton_id: &str,
+        target: &str,
+        base_version: i64,
+        summary: &str,
+        change: Value,
+        session: &Session,
+    ) -> Result<CommitResult, CommonroomError> {
+        if !has_capability(&session.capabilities, "commit") {
+            return Err(
+                permission_denied("session is missing the commit capability")
+                    .detail("required", "commit"),
+            );
+        }
+        if self.room_mode()? != "baton" {
+            return Err(mode_mismatch("workspace_write requires baton mode")
+                .detail("mode", self.room_mode()?));
+        }
+        if let Some(expired) = self.expire_baton()? {
+            if expired == baton_id {
+                return Err(baton_expired("editing baton has expired").detail("baton_id", baton_id));
+            }
+        }
+        let Some(current) = self.current_baton()? else {
+            return Err(baton_required("an editing baton is required").detail("baton_id", baton_id));
+        };
+        if current.participant_id != session.participant_id || current.baton_id != baton_id {
+            return Err(baton_held("another participant holds the editing baton")
+                .detail("holder", current.holder)
+                .detail("expires_at", current.expires_at)
+                .detail("baton_id", current.baton_id));
+        }
+        self.sync_substrate()?;
+        if base_version != self.current_version()? {
+            let prepared = self
+                .prepare_change(target, &change, &self.stored_content()?)
+                .unwrap_or(PreparedChange {
+                    content: String::new(),
+                    whole_document: false,
+                    region: None,
+                });
+            return Err(self.conflict(base_version, &prepared.content)?);
+        }
+        let prepared = self.prepare_change(target, &change, &self.stored_content()?)?;
+        let previous = self.stored_content()?;
+        let mut payload = self.append_version(
+            Some(&session.participant_id),
+            summary,
+            &prepared.content,
+            true,
+            Some(baton_id),
+        )?;
+        payload.target = prepared.region.or_else(|| Some(target.to_string()));
+        self.supersede_overlapping(&previous, &prepared.content)?;
+        Ok(payload)
+    }
+
+    fn revert_to(&self, version: i64, session: &Session) -> Result<CommitResult, CommonroomError> {
+        if !has_capability(&session.capabilities, "admin") {
+            return Err(permission_denied("session is missing the admin capability")
+                .detail("required", "admin"));
+        }
+        let content = self.version_content(version)?;
+        let current = self.current_version()?;
+        self.commit_content(
+            Some(&session.participant_id),
+            current,
+            &format!("revert to version {version}"),
+            &content,
+        )
+    }
+
+    fn recent_commits(&self, limit: i64) -> Result<Vec<RecentCommit>, CommonroomError> {
+        let limit = limit.clamp(1, 20);
+        let rows: Vec<(i64, String, Option<String>, String, String)> = self.map_rows(
+            "SELECT version, summary, participant_id, created_at, content
+             FROM versions ORDER BY version DESC LIMIT ?1",
+            params![limit],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )?;
+        let mut commits = Vec::new();
+        for (version, summary, participant_id, created_at, content) in rows {
+            let previous = if version > 1 {
+                self.version_content(version - 1).unwrap_or_default()
+            } else {
+                String::new()
+            };
+            let baton_id = self.baton_id_for_version(version)?;
+            commits.push(RecentCommit {
+                version,
+                summary,
+                participant_id,
+                created_at,
+                baton_id,
+                diff: cap_text(
+                    &markdown::unified_diff(
+                        &previous,
+                        &content,
+                        &format!("v{}", version.saturating_sub(1)),
+                        &format!("v{version}"),
+                    ),
+                    8_000,
+                ),
+            });
+        }
+        Ok(commits)
+    }
+
+    fn baton_id_for_version(&self, version: i64) -> Result<Option<String>, CommonroomError> {
+        let payloads: Vec<String> = self.map_rows(
+            "SELECT payload_json FROM events WHERE event_type = ?1 ORDER BY event_id DESC LIMIT 50",
+            params![ARTIFACT_CHANGED],
+            |row| row.get(0),
+        )?;
+        for payload in payloads {
+            let value: Value = serde_json::from_str(&payload).unwrap_or(Value::Null);
+            if value.get("version").and_then(Value::as_i64) == Some(version) {
+                return Ok(value
+                    .get("baton_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string));
+            }
+        }
+        Ok(None)
+    }
+
+    fn clamp_baton_minutes(&self, minutes: Option<i64>) -> Result<i64, CommonroomError> {
+        let max = self.baton_max_minutes()?;
+        let requested = minutes.unwrap_or(self.baton_default_minutes()?);
+        if requested <= 0 {
+            return Err(invalid_request("baton minutes must be positive"));
+        }
+        Ok(requested.min(max))
+    }
+
+    fn reject_if_baton_held_by_other(&self, participant_id: &str) -> Result<(), CommonroomError> {
+        self.expire_baton()?;
+        if let Some(current) = self.current_baton()? {
+            if current.participant_id != participant_id {
+                return Err(baton_held("another participant holds the editing baton")
+                    .detail("holder", current.holder)
+                    .detail("expires_at", current.expires_at));
+            }
+        }
+        Ok(())
+    }
+
+    fn expire_baton(&self) -> Result<Option<String>, CommonroomError> {
+        let Some(baton_id) = self.meta("baton_id")?.filter(|value| !value.is_empty()) else {
+            return Ok(None);
+        };
+        let expires = self.meta("baton_expires")?.unwrap_or_default();
+        if expires.is_empty() {
+            return Ok(None);
+        }
+        if parse_time(&expires)? >= self.now() {
+            return Ok(None);
+        }
+        let holder = self.meta("baton_holder")?.unwrap_or_default();
+        self.clear_baton_keys()?;
+        self.record(
+            BATON_EXPIRED,
+            json!({"baton_id": baton_id, "participant_id": holder, "expires_at": expires}),
+        )?;
+        Ok(Some(baton_id))
+    }
+
+    fn current_baton(&self) -> Result<Option<BatonView>, CommonroomError> {
+        let Some(baton_id) = self.meta("baton_id")?.filter(|value| !value.is_empty()) else {
+            return Ok(None);
+        };
+        let participant_id = self.meta("baton_holder")?.unwrap_or_default();
+        let expires_at = self.meta("baton_expires")?.unwrap_or_default();
+        if participant_id.is_empty() || expires_at.is_empty() {
+            return Ok(None);
+        }
+        if parse_time(&expires_at)? < self.now() {
+            return Ok(None);
+        }
+        Ok(Some(BatonView {
+            baton_id,
+            holder: self.participant_name(&participant_id)?,
+            participant_id,
+            expires_at,
+        }))
+    }
+
+    fn baton_holder_id(&self) -> Result<Option<String>, CommonroomError> {
+        Ok(self.meta("baton_holder")?.filter(|value| !value.is_empty()))
+    }
+
+    fn participant_name(&self, participant_id: &str) -> Result<String, CommonroomError> {
+        let name: Option<String> = self
+            .conn()?
+            .query_row(
+                "SELECT name FROM participants WHERE participant_id = ?1",
+                params![participant_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .db()?;
+        Ok(name.unwrap_or_else(|| participant_id.to_string()))
+    }
+
+    fn clear_baton_record(&self, event_type: &str) -> Result<(), CommonroomError> {
+        let baton_id = self.meta("baton_id")?.unwrap_or_default();
+        let holder = self.meta("baton_holder")?.unwrap_or_default();
+        self.clear_baton_keys()?;
+        if !baton_id.is_empty() {
+            self.record(
+                event_type,
+                json!({"baton_id": baton_id, "participant_id": holder}),
+            )?;
+        }
+        Ok(())
+    }
+
+    fn clear_baton_keys(&self) -> Result<(), CommonroomError> {
+        self.set_meta("baton_id", "")?;
+        self.set_meta("baton_holder", "")?;
+        self.set_meta("baton_expires", "")?;
+        Ok(())
     }
 
     fn transport_for_invite(&self) -> Result<Value, CommonroomError> {
@@ -2264,6 +3042,9 @@ impl EngineState {
         Ok(Diagnostics {
             listener: hint,
             participants,
+            mode: self.room_mode()?,
+            baton_max_minutes: self.baton_max_minutes()?,
+            baton: self.current_baton()?,
         })
     }
 
@@ -2542,6 +3323,29 @@ impl EngineState {
             invite_id: row.invite_id,
         })
     }
+}
+
+struct PreparedChange {
+    content: String,
+    whole_document: bool,
+    region: Option<String>,
+}
+
+struct ProposalPreview {
+    diff: String,
+    whole_document: bool,
+    deletes_regions: bool,
+}
+
+fn cap_text(value: &str, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value.to_string();
+    }
+    let mut end = max_bytes;
+    while end > 0 && !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}\n… truncated\n", &value[..end])
 }
 
 struct ConsumedInvite {
@@ -3223,5 +4027,356 @@ mod tests {
         assert!(sub
             .recv_timeout(std::time::Duration::from_millis(80))
             .is_err());
+    }
+
+    fn approve_and_commit(
+        engine: &WorkspaceEngine,
+        proposal_id: &str,
+        reviewer: &str,
+        committer: &str,
+    ) {
+        engine
+            .review_proposal(proposal_id, reviewer, true, None)
+            .unwrap();
+        engine
+            .commit_proposal(proposal_id, committer, None)
+            .unwrap();
+    }
+
+    #[test]
+    fn section_proposal_without_change_section_keeps_the_rest_of_the_file() {
+        let original = "# Test notes\n\n## Intro\n\nhello\n\n## Plan\n\n- old\n\n## Tail\n\nstay\n";
+        let (_dir, engine) = engine(original);
+        let agent = engine
+            .join("agent", "writer", None, None, "local", None)
+            .unwrap();
+        let proposal = engine
+            .propose(
+                &agent.participant_id,
+                "Plan",
+                1,
+                "steps",
+                json!({"content": "## Plan\n\n- step one\n- step two\n- step three\n"}),
+                None,
+            )
+            .unwrap();
+        approve_and_commit(
+            &engine,
+            &proposal.proposal_id,
+            &agent.participant_id,
+            &agent.participant_id,
+        );
+        let updated = std::fs::read_to_string(engine.workspace_path()).unwrap();
+        assert!(updated.contains("# Test notes"));
+        assert!(updated.contains("## Intro"));
+        assert!(updated.contains("hello"));
+        assert!(updated.contains("- step three"));
+        assert!(updated.contains("## Tail"));
+        assert!(updated.contains("stay"));
+        assert_ne!(updated, "## Plan\n\n- step one\n- step two\n- step three\n");
+    }
+
+    #[test]
+    fn disagreeing_change_section_is_rejected() {
+        let (_dir, engine) = engine("# Doc\n\n## Plan\n\nold\n\n## Tail\n\nstay\n");
+        let agent = engine
+            .join("agent", "writer", None, None, "local", None)
+            .unwrap();
+        let err = engine
+            .propose(
+                &agent.participant_id,
+                "Plan",
+                1,
+                "nope",
+                json!({"section": "Tail", "content": "## Tail\n\nchanged\n"}),
+                None,
+            )
+            .unwrap_err();
+        assert_eq!(err.code, "invalid_request");
+    }
+
+    #[test]
+    fn unrelated_sections_commit_without_invalidating_each_other() {
+        let (_dir, engine) = engine("# Doc\n\n## A\n\na\n\n## B\n\nb\n\n## C\n\nc\n");
+        let agent = engine
+            .join("agent", "writer", None, None, "local", None)
+            .unwrap();
+        let a = engine
+            .propose(
+                &agent.participant_id,
+                "A",
+                1,
+                "edit a",
+                json!({"content": "## A\n\na2\n"}),
+                None,
+            )
+            .unwrap();
+        let b = engine
+            .propose(
+                &agent.participant_id,
+                "B",
+                1,
+                "edit b",
+                json!({"content": "## B\n\nb2\n"}),
+                None,
+            )
+            .unwrap();
+        let c = engine
+            .propose(
+                &agent.participant_id,
+                "C",
+                1,
+                "edit c",
+                json!({"content": "## C\n\nc2\n"}),
+                None,
+            )
+            .unwrap();
+        engine
+            .review_proposal(&a.proposal_id, &agent.participant_id, true, None)
+            .unwrap();
+        engine
+            .review_proposal(&b.proposal_id, &agent.participant_id, true, None)
+            .unwrap();
+        engine
+            .review_proposal(&c.proposal_id, &agent.participant_id, true, None)
+            .unwrap();
+        engine
+            .commit_proposal(&a.proposal_id, &agent.participant_id, None)
+            .unwrap();
+        engine
+            .commit_proposal(&b.proposal_id, &agent.participant_id, None)
+            .unwrap();
+        engine
+            .commit_proposal(&c.proposal_id, &agent.participant_id, None)
+            .unwrap();
+        let updated = std::fs::read_to_string(engine.workspace_path()).unwrap();
+        assert!(updated.contains("a2"));
+        assert!(updated.contains("b2"));
+        assert!(updated.contains("c2"));
+    }
+
+    #[test]
+    fn the_same_region_still_conflicts() {
+        let (_dir, engine) = engine("# Doc\n\n## A\n\na\n\n## B\n\nb\n");
+        let agent = engine
+            .join("agent", "writer", None, None, "local", None)
+            .unwrap();
+        let first = engine
+            .propose(
+                &agent.participant_id,
+                "A",
+                1,
+                "first",
+                json!({"content": "## A\n\none\n"}),
+                None,
+            )
+            .unwrap();
+        let second = engine
+            .propose(
+                &agent.participant_id,
+                "A",
+                1,
+                "second",
+                json!({"content": "## A\n\ntwo\n"}),
+                None,
+            )
+            .unwrap();
+        engine
+            .review_proposal(&first.proposal_id, &agent.participant_id, true, None)
+            .unwrap();
+        engine
+            .review_proposal(&second.proposal_id, &agent.participant_id, true, None)
+            .unwrap();
+        engine
+            .commit_proposal(&first.proposal_id, &agent.participant_id, None)
+            .unwrap();
+        let err = engine
+            .commit_proposal(&second.proposal_id, &agent.participant_id, None)
+            .unwrap_err();
+        assert_eq!(err.code, "stale_version");
+    }
+
+    #[test]
+    fn an_outside_edit_of_another_section_does_not_conflict() {
+        let (_dir, engine) = engine("# Doc\n\n## A\n\na\n\n## C\n\nc\n");
+        let agent = engine
+            .join("agent", "writer", None, None, "local", None)
+            .unwrap();
+        let proposal = engine
+            .propose(
+                &agent.participant_id,
+                "A",
+                1,
+                "edit a",
+                json!({"content": "## A\n\na2\n"}),
+                None,
+            )
+            .unwrap();
+        engine
+            .review_proposal(&proposal.proposal_id, &agent.participant_id, true, None)
+            .unwrap();
+        std::fs::write(
+            engine.workspace_path(),
+            "# Doc\n\n## A\n\na\n\n## C\n\nchanged\n",
+        )
+        .unwrap();
+        engine
+            .commit_proposal(&proposal.proposal_id, &agent.participant_id, None)
+            .unwrap();
+        let updated = std::fs::read_to_string(engine.workspace_path()).unwrap();
+        assert!(updated.contains("a2"));
+        assert!(updated.contains("changed"));
+    }
+
+    #[test]
+    fn ambiguous_region_names_return_candidates() {
+        let (_dir, engine) =
+            engine("# Doc\n\n## Alpha\n\n### Notes\n\na\n\n## Beta\n\n### Notes\n\nb\n");
+        let err = engine.read(Some("Notes"), None, None).unwrap_err();
+        assert_eq!(err.code, "invalid_region");
+        let candidates = err.details["candidates"].as_array().unwrap();
+        assert_eq!(candidates.len(), 2);
+    }
+
+    #[test]
+    fn status_and_reads_stay_bounded() {
+        let mut body = String::from("# Doc\n");
+        for index in 0..2_000 {
+            body.push_str(&format!(
+                "\n## Section {index}\n\n### Child {index}\n\ntext {index}\n"
+            ));
+        }
+        let (_dir, engine) = engine(&body);
+        let status = serde_json::to_vec(&engine.status().unwrap()).unwrap();
+        assert!(status.len() < 16_000, "status {}", status.len());
+        let regions =
+            serde_json::to_vec(&engine.regions_page(None, None, None, None).unwrap()).unwrap();
+        assert!(regions.len() < 16_000, "regions {}", regions.len());
+        let read = engine.read(None, None, None).unwrap();
+        assert!(read.truncated);
+        assert!(read.continuation.is_some());
+        assert!(read.content.len() <= 8_192);
+    }
+
+    #[test]
+    fn baton_mode_writes_one_region_and_blocks_everyone_else() {
+        let (_dir, engine) = engine("# Doc\n\n## Plan\n\nold\n\n## Tail\n\nstay\n");
+        engine.configure_room("baton", 10, 10).unwrap();
+        let host = engine.ensure_host("Ada", "local").unwrap();
+        let caps = Some(vec![
+            "read".into(),
+            "propose".into(),
+            "checkout".into(),
+            "commit".into(),
+        ]);
+        let holder = engine
+            .join("agent", "holder", caps.clone(), None, "local", None)
+            .unwrap();
+        let other = engine
+            .join("agent", "other", caps, None, "local", None)
+            .unwrap();
+        let grant = engine
+            .baton_request(Some(60), Some("editing"), &holder)
+            .unwrap();
+        let expires = chrono::DateTime::parse_from_rfc3339(&grant.expires_at).unwrap();
+        let delta = expires.signed_duration_since(chrono::Utc::now());
+        assert!(delta.num_minutes() <= 10);
+        assert!(delta.num_minutes() >= 9);
+        let err = engine.baton_request(Some(5), None, &other).unwrap_err();
+        assert_eq!(err.code, "baton_held");
+        assert!(err.details["holder"].as_str().unwrap().contains("holder"));
+        let err = engine
+            .write_with_baton(
+                "missing",
+                "Plan",
+                1,
+                "no baton",
+                json!({"content": "## Plan\n\nnope\n"}),
+                &other,
+            )
+            .unwrap_err();
+        assert_eq!(err.code, "baton_held");
+        engine
+            .write_with_baton(
+                &grant.baton_id,
+                "Plan",
+                1,
+                "update plan",
+                json!({"content": "## Plan\n\nnew\n"}),
+                &holder,
+            )
+            .unwrap();
+        let updated = std::fs::read_to_string(engine.workspace_path()).unwrap();
+        assert!(updated.contains("new"));
+        assert!(updated.contains("## Tail"));
+        assert!(updated.contains("stay"));
+        engine.baton_release(&grant.baton_id, &holder).unwrap();
+        let next = engine.baton_request(Some(5), None, &other).unwrap();
+        engine.baton_revoke(&host).unwrap();
+        let err = engine
+            .write_with_baton(
+                &next.baton_id,
+                "Plan",
+                engine.status().unwrap().version,
+                "after revoke",
+                json!({"content": "## Plan\n\nrevoked\n"}),
+                &other,
+            )
+            .unwrap_err();
+        assert_eq!(err.code, "baton_required");
+        engine.set_room_mode("review", Some(&host)).unwrap();
+        let err = engine
+            .write_with_baton(
+                &next.baton_id,
+                "Plan",
+                engine.status().unwrap().version,
+                "wrong mode",
+                json!({"content": "## Plan\n\nmode\n"}),
+                &other,
+            )
+            .unwrap_err();
+        assert_eq!(err.code, "mode_mismatch");
+        let err = engine.set_room_mode("baton", Some(&other)).unwrap_err();
+        assert_eq!(err.code, "permission_denied");
+    }
+
+    #[test]
+    fn an_expired_baton_does_not_write() {
+        let (_dir, engine) = engine("# Doc\n\n## Plan\n\nold\n");
+        engine.configure_room("baton", 10, 10).unwrap();
+        let holder = engine
+            .join(
+                "agent",
+                "holder",
+                Some(vec!["commit".into()]),
+                None,
+                "local",
+                None,
+            )
+            .unwrap();
+        let grant = engine.baton_request(Some(5), None, &holder).unwrap();
+        let conn = rusqlite::Connection::open(engine.db_path()).unwrap();
+        conn.execute(
+            "UPDATE metadata SET value = '2000-01-01T00:00:00.000000+00:00' WHERE key = 'baton_expires'",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+        let before = std::fs::read_to_string(engine.workspace_path()).unwrap();
+        let err = engine
+            .write_with_baton(
+                &grant.baton_id,
+                "Plan",
+                1,
+                "late",
+                json!({"content": "## Plan\n\nlate\n"}),
+                &holder,
+            )
+            .unwrap_err();
+        assert_eq!(err.code, "baton_expired");
+        assert_eq!(
+            std::fs::read_to_string(engine.workspace_path()).unwrap(),
+            before
+        );
     }
 }

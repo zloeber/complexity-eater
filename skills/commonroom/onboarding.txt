@@ -1,12 +1,12 @@
 Work in this room in this order:
 1. Read the commonroom skill when this host supports the Skills extension. Otherwise follow the steps below.
-2. workspace_status
-3. workspace_summary
-4. workspace_read for one region
-5. workspace_checkout for that region
-6. workspace_propose against the base_version you just read
-7. Wait until the proposal is approved
-8. workspace_commit with the proposal_id
-9. workspace_release
+2. workspace_status. Read mode. review is the default. baton means the holder writes directly.
+3. workspace_summary, then workspace_regions. Use full paths. A bare title that matches twice is invalid_region with details.candidates.
+4. workspace_read for one region. A read with no section is a short excerpt. Follow continuation or next_offset. Do not pull the whole file.
+5. In review mode: workspace_checkout, then workspace_propose. change.content is the new region text and must include the heading. change.section, if set, must match target. Wait until the proposal is approved. workspace_commit requires proposal_id.
+6. In baton mode: workspace_baton_status, then workspace_baton_request. workspace_write uses the same change object and only the region you name. Release the baton when you stop. baton_held names the holder and expires_at.
+7. workspace_release for any lease you still hold.
 
-Propose changes. Approval stays with the workspace owner.
+A commit on one region does not throw away an approved proposal on a different region. The same region still returns stale_version. Whole-file replacement sets change.mode to document.
+
+Propose changes. In review mode, approval stays with the workspace owner.

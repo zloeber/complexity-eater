@@ -41,6 +41,8 @@ The names are the ones the engine already used. They are finer than a single "up
 | Invitation created or revoked | `invite.created`, `invite.revoked` |
 | Handoff opened, accepted, finished, approved, rejected, or cancelled | `handoff.created`, `handoff.accepted`, `handoff.result_ready`, `handoff.approved`, `handoff.rejected`, `handoff.cancelled` |
 | Execution task created or changed | `task.created`, `task.updated` |
+| Editing baton granted, renewed, released, expired, or revoked | `baton.granted`, `baton.renewed`, `baton.released`, `baton.expired`, `baton.revoked` |
+| Room mode switched | `room.mode_changed` |
 
 A denied call does not emit the success event for that call. A second release of a lease, or a second revoke of an invitation, does not emit another event. `proposal.conflicted` is recorded because the proposal status did change; `change.committed` is not.
 

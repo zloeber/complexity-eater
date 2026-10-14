@@ -14,7 +14,7 @@ edges:
     condition: when writing a final status update for the project state
   - target: supply-chain.md
     condition: when the release change also touches scanners, the image, or attestations
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # Release check
@@ -32,6 +32,7 @@ The release workflow uses GitHub Actions for CI and semantic-release. The `ce` b
 - `docs:`, `test:`, `refactor:`, and similar non-release prefixes do not trigger a version bump.
 - Release automation expects CI to pass before semantic release creates a tag.
 - The binary workflow scans archives and the container image, then attaches archives, `SHA256SUMS`, and SBOMs to the GitHub release.
+- Semantic-release dispatches that workflow on the tag ref (`vX.Y.Z`), so provenance is `refs/tags/vX.Y.Z`. Dispatching it on `main` records `refs/heads/main` and fails a verifier pinned to the tag.
 - Follow [supply-chain](./supply-chain.md) when the change touches scanners, the image, or attestations.
 - `conventional-changelog-conventionalcommits` stays on 9.3.1. Preset 10 requires `conventional-changelog-writer` 9, and semantic-release 24 loads writer 8, so `generateNotes` fails before a tag exists.
 

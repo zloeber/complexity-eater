@@ -12,7 +12,7 @@ edges:
     condition: when current project state should reflect a live notification or resync issue
   - target: INDEX.md
     condition: when this pattern needs to be updated or cross-referenced
-last_updated: 2026-10-12
+last_updated: 2026-10-14
 ---
 
 # Workspace events and subscriptions
@@ -32,6 +32,7 @@ The engine is the only writer. After a successful mutation it records the state 
 - Event payloads omit secrets, document bodies, proposal change bodies, and transport addresses.
 - Slow readers are dropped; the next connection sees `resync` and rebuilds state from the engine.
 - A stale proposal or a newer document commit can surface `proposal.conflicted` or `proposal.superseded` without a general “updated” event.
+- Baton grants, renewals, releases, expiry, and revocation are `baton.*` events. A mode switch is `room.mode_changed`. A baton commit is still `change.committed`, and its payload includes `baton_id`.
 
 ## Verify
 - Confirm event ordering through the monotonic `event_id` and the engine’s write mutex.

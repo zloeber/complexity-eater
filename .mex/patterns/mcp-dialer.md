@@ -12,7 +12,7 @@ edges:
     condition: when validating local CLI startup and invocation steps
   - target: ../ROUTER.md
     condition: when project state changed after a session or transport fix
-last_updated: 2026-10-12
+last_updated: 2026-10-14
 ---
 
 # MCP dialer
@@ -30,6 +30,7 @@ The project has a second process, `ce mcp`, that speaks JSON-RPC over stdin/stdo
 - MCP revision `2026-07-28` is the only accepted revision.
 - The session ingress is different from the owner port; the owner cookie does not grant access there.
 - Failure to dial does not spend a one-use invitation; success does.
+- An oversized body is `limit_exceeded` (JSON-RPC `-32000`) with `data.limit` and `data.size`. `workspace_commit` requires `proposal_id`. Tool schemas use underscore names such as `workspace_propose`.
 
 ## Verify
 - Check the route and handler definitions in `ce-http` when debugging 401/403 behavior.

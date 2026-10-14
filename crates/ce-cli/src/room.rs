@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use axum::Router;
 use ce_core::{Invite, Session, WorkspaceEngine};
-use ce_http::{create_router, Access};
+use ce_http::{create_router, create_router_with, Access, OwnerGate};
 use ce_protocol::{invalid_request, paste_message, CommonroomError};
 use ce_transport::{create_transport, Transport};
 use serde_json::{json, Value};
@@ -164,34 +164,32 @@ pub async fn start_room(
     name: &str,
     transport_name: Option<&str>,
 ) -> Result<RunningRoom, CommonroomError> {
-    if !matches!(host, "127.0.0.1" | "localhost" | "::1") {
-        return Err(invalid_request(
-            "refusing non-loopback bind; use a transport plugin for remote access",
-        ));
-    }
+    let bind_host = loopback_host(host)?;
     let host_session = engine.ensure_host(name, "local")?;
-    let owner = TcpListener::bind(("127.0.0.1", port))
+    let owner = TcpListener::bind((bind_host, port))
         .await
         .map_err(|err| invalid_request(format!("workspace server did not start: {err}")))?;
     let owner_port = owner
         .local_addr()
         .map_err(|err| invalid_request(format!("workspace server did not start: {err}")))?
         .port();
-    let ingress = TcpListener::bind(("127.0.0.1", 0))
+    let ingress = TcpListener::bind((bind_host, 0))
         .await
         .map_err(|err| invalid_request(format!("workspace server did not start: {err}")))?;
     let ingress_port = ingress
         .local_addr()
         .map_err(|err| invalid_request(format!("workspace server did not start: {err}")))?
         .port();
+    let (gate, secret) = OwnerGate::issue(owner_port);
     let (shutdown, watch_rx) = watch::channel(false);
     let mut tasks = vec![
         spawn_server(
             owner,
-            create_router(
+            create_router_with(
                 Arc::clone(&engine),
                 Access::Owner,
                 Some(host_session.clone()),
+                Some(std::sync::Arc::new(gate)),
             ),
             watch_rx.clone(),
         ),
@@ -211,7 +209,7 @@ pub async fn start_room(
         } else {
             engine.set_transport(Some(json!({
                 "type": "loopback",
-                "address": "127.0.0.1",
+                "address": if bind_host == "::1" { "::1" } else { "127.0.0.1" },
                 "port": ingress_port,
                 "encrypted": false,
                 "mode": "local"
@@ -235,11 +233,16 @@ pub async fn start_room(
             return Err(err);
         }
     };
-    wait_until_accepts(owner_port);
-    wait_until_accepts(ingress_port);
+    wait_until_accepts(bind_host, owner_port);
+    wait_until_accepts(bind_host, ingress_port);
+    let local_url = if bind_host == "::1" {
+        format!("http://[::1]:{owner_port}/?token={secret}")
+    } else {
+        format!("http://127.0.0.1:{owner_port}/?token={secret}")
+    };
     Ok(RunningRoom {
         engine,
-        local_url: format!("http://127.0.0.1:{owner_port}"),
+        local_url,
         invite,
         host_session,
         transport: plugin,
@@ -249,15 +252,25 @@ pub async fn start_room(
     })
 }
 
-fn wait_until_accepts(port: u16) {
+fn loopback_host(host: &str) -> Result<&'static str, CommonroomError> {
+    match host {
+        "127.0.0.1" | "localhost" => Ok("127.0.0.1"),
+        "::1" => Ok("::1"),
+        _ => Err(invalid_request(
+            "refusing non-loopback bind; only 127.0.0.1, localhost, and ::1 are accepted. Use a transport plugin for remote access",
+        )),
+    }
+}
+
+fn wait_until_accepts(host: &str, port: u16) {
+    let address = if host == "::1" {
+        std::net::SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, port))
+    } else {
+        std::net::SocketAddr::from(([127, 0, 0, 1], port))
+    };
     let deadline = std::time::Instant::now() + Duration::from_secs(2);
     while std::time::Instant::now() < deadline {
-        if std::net::TcpStream::connect_timeout(
-            &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
-            Duration::from_millis(50),
-        )
-        .is_ok()
-        {
+        if std::net::TcpStream::connect_timeout(&address, Duration::from_millis(50)).is_ok() {
             return;
         }
         std::thread::sleep(Duration::from_millis(10));

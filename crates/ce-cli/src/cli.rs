@@ -129,6 +129,26 @@ fn parser() -> Command {
                         .action(ArgAction::SetTrue)
                         .help("Keep metadata only for this process"),
                 )
+                .arg(
+                    Arg::new("mode")
+                        .long("mode")
+                        .value_parser(["review", "baton"])
+                        .default_value("review")
+                        .help("review requires approval; baton lets the holder write directly"),
+                )
+                .arg(
+                    Arg::new("baton-max-minutes")
+                        .long("baton-max-minutes")
+                        .value_parser(clap::value_parser!(i64))
+                        .default_value("15")
+                        .help("Hard cap on one baton grant or renewal"),
+                )
+                .arg(
+                    Arg::new("baton-default-minutes")
+                        .long("baton-default-minutes")
+                        .value_parser(clap::value_parser!(i64))
+                        .help("Grant length when a request omits minutes"),
+                )
                 .arg(Arg::new("json").long("json").action(ArgAction::SetTrue)),
         )
         .subcommand(workspace_command(
@@ -352,6 +372,16 @@ async fn serve(args: &clap::ArgMatches) -> Result<i32, CommonroomError> {
         .get_one::<String>("name")
         .map(String::as_str)
         .unwrap_or("host");
+    let mode = args
+        .get_one::<String>("mode")
+        .map(String::as_str)
+        .unwrap_or("review");
+    let baton_max = *args.get_one::<i64>("baton-max-minutes").unwrap_or(&15);
+    let baton_default = args
+        .get_one::<i64>("baton-default-minutes")
+        .copied()
+        .unwrap_or(baton_max.min(15));
+    engine.configure_room(mode, baton_max, baton_default)?;
     let result = async {
         let mut room = start_room(Arc::clone(&engine), host, port, name, transport).await?;
         if args.get_flag("json") {
