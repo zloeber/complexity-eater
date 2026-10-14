@@ -55,3 +55,5 @@ Identity, capability checks, lease conflicts, and commit approval stay in the en
 ## What is intentionally not abstracted
 
 Billing, tenancy, license checks, and an admin console are not interfaces yet. Adding unused traits would pretend those products exist. The roadmap says where they attach: beside the engine, not inside each handler.
+
+The public website in `website/` is a separate static site. It does not call the engine, and opening it does not create a room. Deployment is on the [public website](../operations/website.md) page. A future hosted room is described in [Hosted rooms](hosted-rooms.md).

@@ -1,0 +1,83 @@
+<!--
+title: Hosted rooms
+description: A versioned proposal for hosting Complexity Eater rooms later, without pretending a hosted service exists now.
+path: /hosted.html
+nav: hosted
+-->
+<main id="content">
+  <p class="eyebrow">Proposal, not a service</p>
+  <h1>Hosted rooms</h1>
+  <p class="lede">Room-launch contract version 1 has a hosted mode with status <code>not_implemented</code>. This page is the comparison a later provider would have to satisfy. Nothing here provisions a room.</p>
+  <aside class="note">
+    <p>The same proposal is in the repository at <code>docs/architecture/hosted-rooms.md</code> for the documentation site. The contract is <a href="/contracts/room-launch.v1.json">room-launch.v1.json</a>.</p>
+  </aside>
+
+  <h2>Recommendation</h2>
+  <p>The smallest next step is a remote instance of the existing <code>ce</code> binary, one room process per isolated host, reached through the Tailcat plugin or another transport that publishes only the session ingress. The engine, the invitation codec, and the owner/agent split stay as they are. A shared supervisor is a later step. A Cloudflare Workers and Durable Objects port of the room is the wrong first host: it would reimplement the Rust core to fit a platform.</p>
+
+  <div class="table-wrap">
+    <table>
+      <caption>Three ways to host a room later</caption>
+      <thead>
+        <tr>
+          <th scope="col">Option</th>
+          <th scope="col">Idle cost</th>
+          <th scope="col">Fit</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1. One remote <code>ce</code> process per room</td>
+          <td>The virtual machine stays up for the life of the room. Budget a small always-on machine, commonly a few dollars to a few tens of dollars per month at small-VM prices, and confirm the current rate. Scale to zero is not a property of <code>ce serve</code>.</td>
+          <td>Reuses the binary, the protocol, and the security model. Isolation is the process boundary. This is the preferred first experiment, and it is operator-started, not a button on this website.</td>
+        </tr>
+        <tr>
+          <td>2. A shared host with one process per room</td>
+          <td>One machine's floor, divided across rooms. The container profile uses 512 MB for one room, so concurrency is a memory budget. Eight rooms want several gigabytes plus overhead.</td>
+          <td>Still the Rust binary. New code is a supervisor beside the engine. A bug in the supervisor can cross rooms, which the single process does not do today.</td>
+        </tr>
+        <tr>
+          <td>3. Workers and Durable Objects</td>
+          <td>Duration billing can be cheaper for idle rooms only after a rewrite. A Worker that proxies to option 1 still pays for the Rust process.</td>
+          <td>The current process is Axum, Tokio, SQLite, and two loopback listeners. Workers cannot run that binary. A Durable Object would be a second implementation of protocol version 1. Do not port the core to satisfy the platform.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Room creation and ownership</h2>
+  <p>An operator starts <code>ce serve</code> on loopback inside the host. The host session holds capability <code>*</code>. There is no account row in this phase. The marketing site and the room origin stay separate so a page view cannot become a session.</p>
+
+  <h2>Invitations and sessions</h2>
+  <p>Keep <code>commonroom://join/</code> and protocol version <code>1</code>. A default invitation lasts 60 minutes, at most 7 days, and spends one use. A failed dial does not spend it. Redeeming it creates a session. The invitation secret is not the bearer token for later calls. Sessions default to 8 hours and last at most 24 hours. Short-lived, single-use grants stay the default.</p>
+
+  <h2>Owner and agent permissions</h2>
+  <p>The owner cookie stays on the owner port, which the transport does not publish. Agents present bearers on the ingress. <code>POST /mcp</code> stays on the ingress. A default grant remains <code>read</code>, <code>observe</code>, <code>propose</code>, <code>checkout</code>, and <code>commit</code>. <code>approve</code>, <code>invite</code>, and <code>admin</code> stay off that grant. Every mutating route checks the session again. A task id is not a credential.</p>
+
+  <h2>Transport and failure</h2>
+  <p>Remote participants use a plugin that publishes the ingress. The owner port stays on loopback. If the plugin is missing or crashes, the result is <code>transport_unavailable</code>. The process must not open a public listener as a fallback. A hosted host that cannot bring the plugin up should fail the start and leave no reachable ingress.</p>
+
+  <h2>Expiration, revocation, and destruction</h2>
+  <p>Invitations and sessions expire on their own. <code>ce remove-participant</code> ends a session. Destroying a room is stopping the process and deleting its volume, and that operation must be safe to repeat. Destroying the process invalidates every session because the sidecar is gone. Keep the markdown file if it is evidence. Do not reuse a leaked invitation; create a new one, or destroy the room.</p>
+
+  <h2>Persistence and retention</h2>
+  <p>The markdown file remains the artifact. The sidecar holds participants, sessions, invitations, leases, proposals, events, and versions. The event table is a ring of the newest 2000 rows, not a bus another host can tail. Hosted v1 should not add a second store. Retention is the life of the volume. <code>--ephemeral</code> is the wrong mode for a room someone expects to find later: it deletes the temporary sidecar directory on exit and leaves the markdown file. That deletion does not promise a cryptographic wipe of disk blocks.</p>
+
+  <h2>Quotas and abuse</h2>
+  <p>Keep the current limits: 1 MiB request bodies, 256 KiB proposals, 32 active sessions, 32 active tasks, and 600 authenticated requests per minute per bearer. Add a supervisor cap on restarts and on simultaneous connections per room. Unauthenticated entry is invitation redeem, which stays single-use. Without accounts, a public "create room" control on this website would be an unauthenticated provisioning API. Do not add one. The first hosted rooms are created by an operator who already has the host.</p>
+
+  <h2>Audit and incidents</h2>
+  <p>Logs keep the path, status, and duration. They omit the <code>Authorization</code> header, the body, invitation secrets, and session ids. A hosted operator can ship those redacted lines to their own store. On a suspected leak, stop the process, preserve the markdown file, and treat every invitation from that sidecar as gone. There is no central account to disable in this phase.</p>
+
+  <h2>Version compatibility</h2>
+  <p>Invitation version <code>1</code> and MCP revision <code>2026-07-28</code> are the only accepted pair. A hosted build must serve that pair and return <code>unsupported_version</code> for anything else. The room-launch contract version is independent: it describes how a website asks a person to start a room. Contract version 1 does not add a provider endpoint. A later contract version can name a provider only after that provider exists and has been reviewed. Old invitations keep working until they expire; they are not migrated in place.</p>
+
+  <h2>Unresolved assumptions</h2>
+  <ul>
+    <li>A two-machine Tailcat session has not been recorded in this repository's test suite. Remote reach depends on that plugin's behavior.</li>
+    <li>Who is allowed to start a hosted room, and how abuse is spotted, is undefined until there is an operator. This phase adds no accounts.</li>
+    <li>Deleting a cloud volume is not, by itself, a statement about remnant data. The provider's disk-erasure claim has to be read separately.</li>
+    <li>Room hostnames must not be this website's origin. Trusted browser origins for a future owner page are not chosen yet.</li>
+    <li>The container's host networking reaches loopback on Linux. Docker Desktop on macOS does not. A hosted image needs a Linux network namespace, not a desktop bridge.</li>
+  </ul>
+</main>

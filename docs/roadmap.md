@@ -19,6 +19,8 @@ Local rooms and peer rooms are the product that exists. The items below are orde
 5. Run the same engine behind a loopback or Tailcat ingress that an organization operates. Storage stays a database they control. Start with the existing SQLite file, then a store that implements the same operations.
 6. Identity stays pluggable. The first self-hosted identity is the invitation and session model that already ships. An organizational login is an additional way to mint a session, not a replacement for capability checks.
 
+The public website in `website/` is a static front door. It does not provision rooms. A comparison of later hosting shapes is in [Hosted rooms](architecture/hosted-rooms.md).
+
 ## Hosted
 
 7. Accounts and workspace ownership. A person keeps their agent identity. An organization's grant is a separate capability on a workspace, not a merge of the two.

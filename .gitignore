@@ -9,3 +9,4 @@ image-digest.txt
 *.sqlite3
 /workspace.md
 /dist
+/website/dist

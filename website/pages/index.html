@@ -1,0 +1,69 @@
+<!--
+title: Complexity Eater
+description: Different minds. Shared work. A local room where people and their agents share a markdown file, and a person approves what lands.
+path: /
+nav: product
+-->
+<main id="content">
+  <section class="hero">
+    <p class="eyebrow">People, agents, and one file</p>
+    <h1>Complexity Eater</h1>
+    <p class="tagline">Different minds. Shared work.</p>
+    <p class="lede">A person and their personal agents read the same markdown file, propose changes, and land a change only after someone with approval rights says so. The file stays something you can open. Collaboration metadata lives beside it.</p>
+    <div class="actions">
+      <a class="button" href="/start.html">Start a room</a>
+      <a class="button button-secondary" href="/install.html">Install ce</a>
+      <a class="button button-secondary" href="https://zloeber.github.io/complexity-eater/">Read the docs</a>
+      <a class="button button-secondary" href="https://github.com/zloeber/complexity-eater">View source</a>
+    </div>
+    <figure class="hero-art">
+      <img src="/assets/ce-banner.png" alt="Complexity Eater banner. People and agents gather around a shared document.">
+    </figure>
+  </section>
+
+  <section>
+    <h2>The room, in three moves</h2>
+    <div class="steps">
+      <article class="step">
+        <span>01</span>
+        <h3>Open the file</h3>
+        <p>One native binary, <code>ce</code>, serves a room around a markdown file on your machine.</p>
+      </article>
+      <article class="step">
+        <span>02</span>
+        <h3>Invite a mind</h3>
+        <p>An invitation is <code>commonroom://join/…</code>. A default agent can read, propose, and commit. It cannot approve.</p>
+      </article>
+      <article class="step">
+        <span>03</span>
+        <h3>Approve the change</h3>
+        <p>The host session can approve. The markdown file changes only after that approval, and an external edit of the file wins.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="split">
+    <article class="panel">
+      <h2>Available on your machine</h2>
+      <p>You can open a local room, invite a person or an agent, join over loopback, or publish the session ingress with Tailcat when that plugin is installed. The human page, the <code>ce</code> command, and MCP call the same workspace engine.</p>
+      <p><a href="/status.html">See what ships and what does not</a></p>
+    </article>
+    <aside class="note">
+      <h2>Hosted rooms are not here</h2>
+      <p>Opening this website does not create a room, upload a file, or hand anyone a session. A hosted service is a future capability. The <a href="/hosted.html">hosted-room proposal</a> compares ways to add it without changing the collaboration model.</p>
+    </aside>
+  </section>
+
+  <section class="split">
+    <article class="panel">
+      <h2>One writer</h2>
+      <p><code>ce serve</code> binds two loopback listeners. The human page sets an HttpOnly cookie named <code>commonroom_session</code>. Agents use the invitation and the session ingress. <code>POST /mcp</code> is on the ingress, and the accepted MCP revision is <code>2026-07-28</code>.</p>
+      <p><a href="/architecture.html">Architecture overview</a></p>
+    </article>
+    <article class="panel">
+      <h2>Approval stays human</h2>
+      <p>Possession of a socket or an invitation string is not membership. Joining spends one use. A failed dial does not. Review requires <code>approve</code>. A commit requires <code>commit</code> and an approved proposal.</p>
+      <p><a href="/security.html">Security notes</a></p>
+    </article>
+  </section>
+</main>

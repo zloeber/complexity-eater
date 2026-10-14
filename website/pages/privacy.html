@@ -1,0 +1,17 @@
+<!--
+title: Privacy
+description: What the Complexity Eater website stores, and what the local ce process does not send.
+path: /privacy.html
+nav: privacy
+-->
+<main id="content">
+  <p class="eyebrow">Static site</p>
+  <h1>Privacy</h1>
+  <p class="lede">This website is a set of files. It has no account system, no analytics script, and no backend that receives room contents.</p>
+  <h2>What the site keeps</h2>
+  <p>A theme control stores <code>ce-theme</code> in <code>localStorage</code> on your browser. That value is <code>light</code> or <code>dark</code>. The start page keeps the filename and names you type in the page. Those values are not submitted anywhere.</p>
+  <p>The host of <code>complexityeater.com</code> is Cloudflare. Ordinary HTTP logs can include the IP address, user agent, and the path of a page such as <code>/start.html</code>. Page paths are not room secrets. Do not put an invitation in the address bar. The site never writes one there.</p>
+  <h2>What <code>ce</code> does</h2>
+  <p><code>ce serve</code> does not phone home. The markdown file and the <code>.commonroom.db</code> sidecar stay on the machine running the process, unless you copy them yourself. Invitation secrets and session ids are credentials for that room. Keep them out of chat transcripts, tickets, and this website.</p>
+  <p>Project status, including what is deliberately not built, is on the <a href="/status.html">status page</a>.</p>
+</main>

@@ -1,4 +1,7 @@
-# Complexity Eater
+# Complexity Eater™
+
+![ComplexityEater™ banner](docs/assets/ce-banner.png)
+
 
 Different minds. Shared work.
 
@@ -24,10 +27,10 @@ Build from source. The toolchain is stable Rust, pinned in `rust-toolchain.toml`
 
 ```sh
 task setup
-task build
+task release
 ```
 
-The binary is `target/release/ce`. `ce --version` prints the package version. `ce --help` lists the commands.
+`task release` writes `target/release/ce`. `task build` writes the debug binary to `target/debug/ce`. `ce --version` prints the package version. `ce --help` lists the commands.
 
 A container build is in [docs/operations/container.md](docs/operations/container.md). Release checksums, SBOMs, and attestations are in [docs/operations/release.md](docs/operations/release.md).
 
@@ -106,6 +109,10 @@ task release  # cargo build --release
 ```
 
 These tasks use the Rust toolchain only.
+
+## Public site
+
+The public website source is `website/`. Its canonical host is `https://complexityeater.com`. The site is static. Opening it does not provision a room. The domain is already in Cloudflare and starts resolving when the Pages custom domain is attached. Deployment is in [docs/operations/website.md](docs/operations/website.md). The documentation site published from `docs/` stays separate.
 
 ## Where to read next
 

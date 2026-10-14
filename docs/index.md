@@ -38,3 +38,5 @@ The [system diagram](architecture/diagram.md) shows the room process, the two li
 * [Container](operations/container.md)
 * [Release](operations/release.md)
 * [Roadmap](roadmap.md)
+* [Public website](operations/website.md)
+* [Hosted rooms](architecture/hosted-rooms.md)

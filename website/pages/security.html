@@ -1,0 +1,31 @@
+<!--
+title: Security
+description: How Complexity Eater separates the owner session, agent capabilities, and invitation secrets.
+path: /security.html
+nav: security
+-->
+<main id="content">
+  <p class="eyebrow">The server decides</p>
+  <h1>Security</h1>
+  <p class="lede">A room assumes the people and agents in it do not all trust each other. A transport can see that a connection exists. Local <code>ce</code> has no account, no telemetry, and no required network.</p>
+
+  <h2>What an invitation is</h2>
+  <p>An invitation names capabilities, an expiry, and a use count. Redeeming it creates a participant and a session. Later requests present the session. The invitation secret is not a bearer token for workspace routes. A room URL, by itself, is not a grant. This website never asks for an invitation, and live capabilities do not belong in a query string.</p>
+  <p>The host session created by <code>ce serve</code> can approve. A default agent invitation cannot approve, invite, or administer the room. Identity comes from the owner cookie or the <code>Authorization</code> bearer. A JSON field cannot choose the actor.</p>
+
+  <h2>Boundaries that already ship</h2>
+  <ul>
+    <li>Owner cookie and session ingress are different sockets. A plugin may forward the ingress only.</li>
+    <li>A non-loopback bind is refused. A missing Tailcat plugin is <code>transport_unavailable</code>, not a public listener.</li>
+    <li>Committing requires <code>commit</code> and an approved proposal. A stale base version returns <code>stale_version</code> and marks the proposal <code>conflicted</code>.</li>
+    <li>Logs record the path, the status, and the duration. They do not record the <code>Authorization</code> header or the body.</li>
+    <li>Diagnostics omit the transport address, the invitation secret, and the session id.</li>
+    <li>When <code>Origin</code> is present on MCP, it must be <code>127.0.0.1</code> or <code>localhost</code>.</li>
+    <li>The owner cookie is HttpOnly, SameSite=Strict, and Path=/. This website is a different origin and does not receive it.</li>
+    <li>Request bodies are limited to 1 MiB. Authenticated HTTP is limited to 600 requests per minute per bearer.</li>
+  </ul>
+
+  <h2>What local mode does not claim</h2>
+  <p>A person who can run code as the host user can read the markdown file and the sidecar. Tenant isolation is a property a future multi-tenant host would have to add. It is not a property of a single-user process. Deleting an ephemeral sidecar removes that temporary directory when the process exits. It does not promise that the disk blocks were wiped, and it does not delete the markdown file.</p>
+  <p>The longer threat model is on the <a href="https://zloeber.github.io/complexity-eater/security/threat-model.html">documentation site</a>. Supply-chain checks for the binary and the container are described with the <a href="https://zloeber.github.io/complexity-eater/operations/release.html">release process</a>.</p>
+</main>

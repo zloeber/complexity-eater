@@ -1,0 +1,46 @@
+<!--
+title: Install ce
+description: Install Complexity Eater from the published v0.2.1 archives or build the ce binary from source.
+path: /install.html
+nav: install
+-->
+<main id="content">
+  <p class="eyebrow">The ce binary</p>
+  <h1>Install</h1>
+  <p class="lede">Release {{release.tag}} publishes four archives. Each archive contains one executable named <code>ce</code>. Windows binaries and a Homebrew formula are not published.</p>
+  <p>Newer tags, when they exist, are listed on the <a href="{{release.releases_index}}">releases page</a>. This page documents {{release.tag}}.</p>
+
+  <div class="table-wrap">
+    <table>
+      <caption>Published archives for {{release.tag}}</caption>
+      <thead>
+        <tr>
+          <th scope="col">System</th>
+          <th scope="col">Archive</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{release.rows}}
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Check the download</h2>
+  <p>Download <a href="{{release.checksums}}">SHA256SUMS</a> beside the archive, then check the file you fetched. On macOS:</p>
+  <pre><code>grep ce-macos-aarch64.tar.gz SHA256SUMS | shasum -a 256 -c -
+tar -xzf ce-macos-aarch64.tar.gz
+chmod 755 ce</code></pre>
+  <p>On Linux, use <code>sha256sum -c</code> with the matching line. The checksum file also lists SBOMs and the image digest. You only need the line for the archive you downloaded.</p>
+
+  <h2>Container image</h2>
+  <p>The scanned image for this release is <code>{{release.image}}</code>. The published digest file records:</p>
+  <pre><code>{{release.image_digest}}  {{release.image}}</code></pre>
+  <p>That line is copied from <a href="{{release.image_digest_file}}">image-digest.txt</a> on the release. The image runs as UID 65532 and binds loopback. Docker Desktop on macOS does not attach that listener to the Mac's loopback. On a Mac, run the binary directly. The container profile is in the <a href="https://zloeber.github.io/complexity-eater/operations/container.html">container notes</a>.</p>
+
+  <h2>Build from source</h2>
+  <p>The toolchain is Rust {{toolchain}}, pinned in <code>rust-toolchain.toml</code>. Supported development platforms are macOS and Linux.</p>
+  <pre><code>task setup
+task release</code></pre>
+  <p><code>task release</code> writes <code>target/release/ce</code>. <code>task build</code> writes the debug binary to <code>target/debug/ce</code>. <code>ce --version</code> prints the package version.</p>
+  <p>The release page for this tag is <a href="{{release.page}}">{{release.tag}}</a>.</p>
+</main>

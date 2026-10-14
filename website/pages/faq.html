@@ -1,0 +1,32 @@
+<!--
+title: FAQ
+description: Common questions about local Complexity Eater rooms, invitations, agents, and hosted plans.
+path: /faq.html
+nav: faq
+-->
+<main id="content">
+  <p class="eyebrow">Short answers</p>
+  <h1>FAQ</h1>
+  <dl class="faq">
+    <dt>Does this website create a room?</dt>
+    <dd>No. The website is static. A room exists when you run <code>ce</code> on a machine that has the markdown file.</dd>
+    <dt>Where does the markdown file live?</dt>
+    <dd>On the host that runs <code>ce</code>. The website has no upload control. Typing a filename on the start page only rewrites a command in your browser.</dd>
+    <dt>What should I give an agent?</dt>
+    <dd>The invitation printed by the room, <code>commonroom://join/…</code>. Do not give out the owner URL or a raw transport address. Do not paste the invitation into this site.</dd>
+    <dt>Can the agent approve its own edit?</dt>
+    <dd>A default invitation cannot. The host session can approve. The agent can commit a proposal that is already approved.</dd>
+    <dt>What happens if Tailcat is not installed?</dt>
+    <dd><code>ce</code> exits with <code>transport_unavailable</code>. It does not fall back to a public listener. Loopback still works without Tailcat.</dd>
+    <dt>Does <code>ce serve</code> phone home?</dt>
+    <dd>No. Local mode has no account, no license check, and no telemetry.</dd>
+    <dt>What does <code>--ephemeral</code> delete?</dt>
+    <dd>The temporary directory that holds the sidecar, when the process exits. The markdown file stays where it is. Deletion is not a promise that the underlying disk blocks were wiped.</dd>
+    <dt>Which platforms have binaries?</dt>
+    <dd>The v0.2.1 release has macOS Apple silicon, macOS Intel, Linux x86_64, and Linux aarch64. Windows paths exist for configuration directories. A Windows binary is not published. Homebrew is not packaged yet.</dd>
+    <dt>Is a remote Tailcat session proven?</dt>
+    <dd>The plugin is implemented. A two-machine Tailcat session is not part of the automated test suite. Do not treat that path as certified by CI.</dd>
+    <dt>When will hosted rooms exist?</dt>
+    <dd>They are not implemented. The <a href="/hosted.html">proposal</a> compares a remote <code>ce</code> process, a shared supervisor, and a Workers port, and recommends starting from the binary that already exists.</dd>
+  </dl>
+</main>

@@ -1,0 +1,76 @@
+<!--
+title: Architecture
+description: How the ce binary, two loopback listeners, and the workspace engine share one markdown file.
+path: /architecture.html
+nav: architecture
+-->
+<main id="content">
+  <p class="eyebrow">One binary, one writer</p>
+  <h1>Architecture</h1>
+  <p class="lede">Complexity Eater is the <code>ce</code> binary. The human page, the command line, and MCP call the same workspace engine. The markdown file is the artifact. <code>&lt;file&gt;.commonroom.db</code> stores versions, proposals, leases, sessions, and events.</p>
+
+  <div class="table-wrap">
+    <table>
+      <caption>Crates in the running product</caption>
+      <thead>
+        <tr>
+          <th scope="col">Crate</th>
+          <th scope="col">Owns</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>ce-protocol</code></td>
+          <td>Error codes, capabilities, limits, the invitation codec, and protocol documents.</td>
+        </tr>
+        <tr>
+          <td><code>ce-core</code></td>
+          <td>The workspace engine, SQLite, markdown regions, skill loading, and platform paths.</td>
+        </tr>
+        <tr>
+          <td><code>ce-transport</code></td>
+          <td>Loopback, the Tailcat plugin, and invitation dialing. The transport does not decide authorization.</td>
+        </tr>
+        <tr>
+          <td><code>ce-http</code></td>
+          <td>Routes, the human page, the session ingress, and MCP <code>2026-07-28</code>.</td>
+        </tr>
+        <tr>
+          <td><code>ce-cli</code></td>
+          <td>The <code>ce</code> command, the room process, the byte HTTP client, and the stdio MCP dialer.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Two listeners</h2>
+  <p><code>ce serve</code> binds both on <code>127.0.0.1</code>. Any other bind is refused. A transport plugin may publish the ingress. It does not publish the owner port.</p>
+  <div class="steps">
+    <article class="step">
+      <span>Owner</span>
+      <h3>Human page</h3>
+      <p><code>GET /</code> sets <code>commonroom_session</code>. The cookie is HttpOnly, SameSite=Strict, and Path=/. The host session holds capability <code>*</code>.</p>
+    </article>
+    <article class="step">
+      <span>Ingress</span>
+      <h3>Agents</h3>
+      <p>Bearer tokens only. <code>POST /mcp</code> is mounted here. The owner port returns 404 for <code>/mcp</code>.</p>
+    </article>
+    <article class="step">
+      <span>Engine</span>
+      <h3>One mutex</h3>
+      <p>The page is a projection of <code>/workspace/room</code>. It is not a second write path. An external edit of the markdown file becomes a new version.</p>
+    </article>
+  </div>
+
+  <h2>Protocol names that stay</h2>
+  <ul>
+    <li>Protocol name <code>commonroom</code>, invitation prefix <code>commonroom://join/</code>.</li>
+    <li>Cookie <code>commonroom_session</code> and sidecar suffix <code>.commonroom.db</code>.</li>
+    <li>Skill URI <code>skill://commonroom/SKILL.md</code>.</li>
+    <li>HTTP <code>Host: commonroom</code> on the byte client.</li>
+    <li>MCP server name <code>Commonroom</code>, revision <code>2026-07-28</code>.</li>
+  </ul>
+  <p><code>ce-core</code>, <code>ce-http</code>, and <code>ce-protocol</code> do not name transport vendors. The CLI may name Tailcat because that is how a person selects the plugin.</p>
+  <p>The illustrated diagram and the crate map live on the <a href="https://zloeber.github.io/complexity-eater/architecture/diagram.html">documentation site</a>. This website does not run a room.</p>
+</main>
