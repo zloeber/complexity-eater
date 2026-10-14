@@ -94,7 +94,7 @@ The attestation names the commit and the workflow. Compare that commit with the 
 
 ## Update process
 
-Dependabot opens weekly pull requests for Cargo, GitHub Actions, and Docker digest bumps. An action pin is the full commit SHA, with the release tag in a comment. Merge it only when CI passes.
+Dependabot opens one weekly pull request per ecosystem: all Cargo updates together, all GitHub Actions updates together, and all image-digest updates together. Security advisories stay in their own pull requests. An action pin is the full commit SHA, with the release tag in a comment. Merge a grouped update only when CI passes. A breaking bump can fail that one pull request; split it out only for that dependency.
 
 Base images stay on Debian 12: `rust:1.99-bookworm` for the builder, `debian:bookworm-slim` for the copied runtime libraries, and `gcr.io/distroless/static-debian12:nonroot` for the runtime root. Inspect a new digest with `docker buildx imagetools inspect <tag>` and keep the builder and the copied glibc on the same Debian release. The Dockerfile comments record the tag that belonged to each digest on 2026-10-13.
 
