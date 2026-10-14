@@ -6,6 +6,7 @@ import json
 import re
 import shutil
 import sys
+import time
 import urllib.error
 import urllib.request
 from html.parser import HTMLParser
@@ -336,20 +337,33 @@ def external_urls(dist_root):
     return sorted(set(found))
 
 
-def head(url):
-    request = urllib.request.Request(
-        url,
-        method="GET",
-        headers={"User-Agent": "complexity-eater-website-check"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            status = response.status
-            response.read(64)
-    except urllib.error.HTTPError as error:
-        status = error.code
-    if status >= 400:
-        fail(f"{url} returned {status}")
+def fetch(url, limit):
+    transient = {429, 500, 502, 503, 504}
+    last = "no response"
+    for attempt in range(4):
+        if attempt:
+            time.sleep(attempt)
+        request = urllib.request.Request(
+            url,
+            method="GET",
+            headers={"User-Agent": "complexity-eater-website-check"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                status = response.status
+                body = response.read(limit)
+        except urllib.error.HTTPError as error:
+            status = error.code
+            body = b""
+        except urllib.error.URLError as error:
+            last = str(error.reason)
+            continue
+        if status < 400:
+            return body
+        last = str(status)
+        if status not in transient:
+            break
+    fail(f"{url} returned {last}")
 
 
 def check_contract():
@@ -453,14 +467,8 @@ def check(online):
             fail(f"sitemap is missing {leaf}")
     if online:
         for url in external_urls(DIST):
-            head(url)
-        digest = urllib.request.urlopen(
-            urllib.request.Request(
-                payload["image_digest_file"],
-                headers={"User-Agent": "complexity-eater-website-check"},
-            ),
-            timeout=30,
-        ).read().decode()
+            fetch(url, 64)
+        digest = fetch(payload["image_digest_file"], None).decode()
         expected = f"{payload['image_digest']}  {payload['image']}"
         if expected not in digest:
             fail("image digest does not match the published release file")
