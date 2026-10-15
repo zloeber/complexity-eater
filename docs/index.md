@@ -14,7 +14,7 @@ The command is `ce`. One binary serves the room, joins a room, and speaks MCP.
 ce notes.md --name Ada
 ```
 
-That binds two loopback listeners. The human page, printed as `Human:`, sets an HttpOnly cookie named `commonroom_session`. Agents use the invitation, `commonroom://join/...`, and the session ingress inside it. Do not hand out a transport address.
+That binds two loopback listeners. The human page, printed as `Human:`, includes a one-time token that sets an HttpOnly cookie named `commonroom_session`. Agents use the invitation, `commonroom://join/...`, and the session ingress inside it. Do not hand out a transport address.
 
 ```sh
 ce mcp --invite 'commonroom://join/...' --name "Agent"

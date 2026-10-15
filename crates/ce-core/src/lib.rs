@@ -7,9 +7,10 @@ mod skill;
 
 pub use bus::{Delivery, EventBus, EventFilter, Subscription, SUBSCRIBER_CAPACITY};
 pub use engine::{
-    Change, ChangesSince, Clock, CommitResult, Diagnostics, DiffResult, Handoff, HandoffCreated,
-    Invite, Lease, ListedInvite, NewHandoff, OutlineItem, Participant, Proposal, ProposalCreated,
-    ReadResult, Region, ReviewResult, Session, Status, Summary, TaskView, WorkspaceEngine,
+    BatonGrant, BatonView, Change, ChangesSince, Clock, CommitResult, Diagnostics, DiffResult,
+    Handoff, HandoffCreated, Invite, Lease, ListedInvite, NewHandoff, OutlineItem, Participant,
+    Proposal, ProposalCreated, ReadResult, RecentCommit, Region, RegionPage, ReviewResult, Session,
+    Status, Summary, TaskView, WorkspaceEngine,
 };
 pub use events::{
     compose_event, is_known_event_type, is_newer, redact_event_payload, Event, ARTIFACT_CHANGED,

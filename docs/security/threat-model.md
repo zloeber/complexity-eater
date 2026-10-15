@@ -15,7 +15,7 @@ Complexity Eater assumes the people and agents in a room do not all trust each o
 
 An invitation names capabilities, an expiry, and a use count. Redeeming it creates a participant and a session. The session is what later requests present. The invitation secret is not a bearer token for workspace routes.
 
-The owner page and the session ingress are different sockets. The owner cookie is not set on the ingress. A plugin is allowed to forward the ingress only.
+The owner page and the session ingress are different sockets. The owner cookie is not set on the ingress. It is set only when the browser opens the one-time token printed with the room. The owner listener accepts `127.0.0.1`, `localhost`, and `::1` for that port, and rejects a foreign `Host`, a foreign `Origin` on a mutating request, and `Sec-Fetch-Site: cross-site`. A plugin is allowed to forward the ingress only.
 
 `admin` and `*` may approve, invite, remove, and overwrite the document. A default agent cannot. HTTP reads the actor from the cookie or the `Authorization` bearer. A field in the JSON body cannot pick a different actor.
 

@@ -42,7 +42,14 @@ pub fn http_exchange(
     raw.push_str("\r\n");
     let mut bytes = raw.into_bytes();
     bytes.extend_from_slice(&payload);
-    connection.send(&bytes)?;
+    if let Err(err) = connection.send(&bytes) {
+        if payload.len() > ce_protocol::Limits::default().max_request_bytes {
+            return Err(ce_protocol::limit_exceeded("request too large")
+                .detail("limit", ce_protocol::Limits::default().max_request_bytes)
+                .detail("size", payload.len()));
+        }
+        return Err(err);
+    }
     let data = read_http(connection, 2_000_000);
     Ok(parse_http(&data))
 }

@@ -31,6 +31,9 @@ nav: install
 tar -xzf ce-macos-aarch64.tar.gz
 chmod 755 ce</code></pre>
   <p>On Linux, use <code>sha256sum -c</code> with the matching line. The checksum file also lists SBOMs and the image digest. You only need the line for the archive you downloaded.</p>
+  <p>The checksum shows the archive matches the release. It does not show who published it. Verify the GitHub artifact attestation for the archive you downloaded:</p>
+  <pre><code>gh attestation verify ce-macos-aarch64.tar.gz -R zloeber/complexity-eater</code></pre>
+  <p>Use the archive name for your system in place of <code>ce-macos-aarch64.tar.gz</code>.</p>
 
   <h2>Container image</h2>
   <p>The scanned image for this release is <code>{{release.image}}</code>. The published digest file records:</p>

@@ -184,7 +184,7 @@ run_room() {
   local page
   page=$(
     docker run --rm --network "container:${name}" "$debian" \
-      bash -c "exec 3<>/dev/tcp/127.0.0.1/${port}; printf 'GET / HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n' >&3; cat <&3" \
+      bash -c "exec 3<>/dev/tcp/127.0.0.1/${port}; printf 'GET / HTTP/1.0\r\nHost: 127.0.0.1:${port}\r\nConnection: close\r\n\r\n' >&3; cat <&3" \
       || true
   )
   if [[ "$page" != *"Complexity Eater"* ]]; then

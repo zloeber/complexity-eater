@@ -35,12 +35,12 @@ HTTP handlers and MCP tools call the same engine methods. The page is a projecti
 
 ## Two listeners
 
-`ce serve` binds both on `127.0.0.1`.
+`ce serve` binds both on `127.0.0.1`, or on `[::1]` when `--host ::1` is set.
 
-* Owner port. `GET /` sets `commonroom_session`. The cookie is HttpOnly, SameSite=Strict, Path=/.
+* Owner port. The printed `Human:` URL carries a one-time token. Opening it sets `commonroom_session` and redirects to a clean URL. The cookie is HttpOnly, SameSite=Strict, Path=/. A request whose `Host` is not the loopback owner is rejected.
 * Ingress port. Bearer sessions only. `POST /mcp` is mounted here. The owner port returns 404 for `/mcp`.
 
-A transport plugin may publish the ingress. It does not publish the owner port. A non-loopback bind is refused with `refusing non-loopback bind; use a transport plugin for remote access`.
+A transport plugin may publish the ingress. It does not publish the owner port. A non-loopback bind is refused with `refusing non-loopback bind; only 127.0.0.1, localhost, and ::1 are accepted`.
 
 ## Replaceable edges
 

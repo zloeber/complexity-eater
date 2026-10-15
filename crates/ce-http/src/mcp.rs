@@ -122,7 +122,7 @@ pub fn handle_mcp(
         None
     };
     let result = match method {
-        "server/discover" => Ok(discover()),
+        "server/discover" => Ok(discover(engine)),
         "tools/list" => Ok(tools_list(session.as_ref())),
         "tools/call" => tools_call(engine, session.as_ref(), &params),
         "prompts/list" => Ok(prompts_list()),
@@ -238,7 +238,16 @@ fn session_from(engine: &WorkspaceEngine, headers: &HeaderMap) -> Result<Session
     engine.authenticate(token)
 }
 
-fn discover() -> Value {
+fn discover(engine: &WorkspaceEngine) -> Value {
+    let mode = engine
+        .status()
+        .map(|status| status.mode)
+        .unwrap_or_else(|_| "review".into());
+    let instructions = if mode == "baton" {
+        "Use the commonroom skill or the workspace_onboarding prompt before editing. This room is in baton mode. The holder writes with workspace_write. Other participants can still propose."
+    } else {
+        "Use the commonroom skill or the workspace_onboarding prompt before editing. Propose changes. Approval stays with the workspace owner. workspace_status reports the room mode."
+    };
     json!({
         "resultType": "complete",
         "supportedVersions": [MCP_PROTOCOL_VERSION],
@@ -251,8 +260,8 @@ fn discover() -> Value {
                 "io.modelcontextprotocol/tasks": {}
             }
         },
-        "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "Commonroom", "version": "0.1.0"}},
-        "instructions": "Use the commonroom skill or the workspace_onboarding prompt before editing. Propose changes. Approval stays with the workspace owner.",
+        "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "Commonroom", "version": env!("CARGO_PKG_VERSION")}},
+        "instructions": instructions,
         "ttlMs": 3_600_000,
         "cacheScope": "public"
     })
@@ -275,14 +284,14 @@ fn tools() -> Vec<Tool> {
         tool(
             "workspace_regions",
             "read",
-            "Markdown regions in the workspace.",
-            json!({"type": "object", "properties": {}}),
+            "Markdown regions in the workspace. Prefer full paths. Results are paged.",
+            json!({"type": "object", "properties": {"depth": {"type": "integer"}, "under": {"type": "string", "description": "Only this region and its children."}, "cursor": {"type": "integer"}, "limit": {"type": "integer"}}}),
         ),
         tool(
             "workspace_read",
             "read",
             "Read one region, or a bounded excerpt.",
-            json!({"type": "object", "properties": {"section": {"type": "string"}, "max_lines": {"type": "integer"}, "max_bytes": {"type": "integer"}}}),
+            json!({"type": "object", "properties": {"section": {"type": "string", "description": "Region path. A bare title that matches more than one heading is invalid_region."}, "max_lines": {"type": "integer"}, "max_bytes": {"type": "integer"}, "offset": {"type": "integer", "description": "Byte offset from a previous next_offset."}}}),
         ),
         tool(
             "workspace_diff",
@@ -360,13 +369,43 @@ fn tools() -> Vec<Tool> {
             "workspace_propose",
             "propose",
             "Propose a change against a base version.",
-            json!({"type": "object", "properties": {"target": {"type": "string"}, "base_version": {"type": "integer"}, "summary": {"type": "string"}, "change": {"type": "object"}}, "required": ["target", "base_version", "summary", "change"]}),
+            json!({"type": "object", "properties": {"target": {"type": "string", "description": "Region path. Use a full path when headings repeat."}, "base_version": {"type": "integer"}, "summary": {"type": "string"}, "change": {"type": "object", "description": "Replacement for the target region.", "properties": {"content": {"type": "string", "description": "New text for the target region, including its heading."}, "section": {"type": "string", "description": "Optional region. Must name the same region as target."}, "mode": {"type": "string", "enum": ["section", "document"], "description": "document replaces the whole file. The default edits the target region. target workspace also replaces the whole file."}}, "required": ["content"]}}, "required": ["target", "base_version", "summary", "change"]}),
         ),
         tool(
             "workspace_commit",
             "commit",
-            "Commit an approved proposal.",
-            json!({"type": "object", "properties": {"proposal_id": {"type": "string"}}, "required": ["proposal_id"]}),
+            "Commit an approved proposal. proposal_id is required.",
+            json!({"type": "object", "properties": {"proposal_id": {"type": "string", "description": "Approved proposal to commit."}}, "required": ["proposal_id"]}),
+        ),
+        tool(
+            "workspace_baton_request",
+            "commit",
+            "Request the editing baton in baton mode. A request above the cap is clamped. The same holder renews, up to max_renewals on workspace_status.",
+            json!({"type": "object", "properties": {"minutes": {"type": "integer"}, "reason": {"type": "string"}}}),
+        ),
+        tool(
+            "workspace_baton_renew",
+            "commit",
+            "Extend the baton you hold, to at most now plus the room maximum. baton_renewal_limit means this grant cannot be extended again.",
+            json!({"type": "object", "properties": {"baton_id": {"type": "string"}, "minutes": {"type": "integer"}}, "required": ["baton_id"]}),
+        ),
+        tool(
+            "workspace_baton_release",
+            "commit",
+            "Release the baton you hold.",
+            json!({"type": "object", "properties": {"baton_id": {"type": "string"}}, "required": ["baton_id"]}),
+        ),
+        tool(
+            "workspace_baton_status",
+            "read",
+            "Room mode, baton holder, expiry, and the maximum grant.",
+            json!({"type": "object", "properties": {}}),
+        ),
+        tool(
+            "workspace_write",
+            "commit",
+            "Write a region directly while you hold the editing baton. Uses the same change shape as workspace_propose.",
+            json!({"type": "object", "properties": {"baton_id": {"type": "string"}, "target": {"type": "string"}, "base_version": {"type": "integer"}, "summary": {"type": "string"}, "change": {"type": "object", "properties": {"content": {"type": "string"}, "section": {"type": "string"}, "mode": {"type": "string"}}, "required": ["content"]}}, "required": ["baton_id", "target", "base_version", "summary", "change"]}),
         ),
         tool(
             "workspace_review",
@@ -533,11 +572,17 @@ fn dispatch(
                 args.get("max_depth").and_then(Value::as_i64),
             )?,
         )?,
-        "workspace_regions" => as_json(engine.regions()?)?,
-        "workspace_read" => as_json(engine.read(
+        "workspace_regions" => as_json(engine.regions_page(
+            args.get("depth").and_then(Value::as_i64),
+            args.get("under").and_then(Value::as_str),
+            args.get("cursor").and_then(Value::as_i64),
+            args.get("limit").and_then(Value::as_i64),
+        )?)?,
+        "workspace_read" => as_json(engine.read_with_offset(
             args.get("section").and_then(Value::as_str),
             args.get("max_lines").and_then(Value::as_i64),
             args.get("max_bytes").and_then(Value::as_i64),
+            args.get("offset").and_then(Value::as_i64),
         )?)?,
         "workspace_diff" => as_json(engine.diff(required_i64(args, "base_version")?)?)?,
         "workspace_changes_since" => as_json(engine.changes_since(
@@ -591,27 +636,36 @@ fn dispatch(
             Some(session),
         )?)?,
         "workspace_commit" => {
-            if let Some(proposal_id) = args.get("proposal_id").and_then(Value::as_str) {
-                as_json(engine.commit_proposal(
-                    proposal_id,
-                    &session.participant_id,
-                    Some(session),
-                )?)?
-            } else {
-                as_json(
-                    engine.commit(
-                        &session.participant_id,
-                        required_i64(args, "base_version")?,
-                        required_str(args, "summary")?,
-                        required_str(args, "content")?,
-                        args.get("target")
-                            .and_then(Value::as_str)
-                            .unwrap_or("workspace"),
-                        Some(session),
-                    )?,
-                )?
-            }
+            let proposal_id = args
+                .get("proposal_id")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| invalid_request("proposal_id is required"))?;
+            as_json(engine.commit_proposal(proposal_id, &session.participant_id, Some(session))?)?
         }
+        "workspace_baton_request" => as_json(engine.baton_request(
+            args.get("minutes").and_then(Value::as_i64),
+            args.get("reason").and_then(Value::as_str),
+            session,
+        )?)?,
+        "workspace_baton_renew" => as_json(engine.baton_renew(
+            required_str(args, "baton_id")?,
+            args.get("minutes").and_then(Value::as_i64),
+            session,
+        )?)?,
+        "workspace_baton_release" => {
+            engine.baton_release(required_str(args, "baton_id")?, session)?;
+            json!({"status": "ok"})
+        }
+        "workspace_baton_status" => engine.baton_status()?,
+        "workspace_write" => as_json(engine.write_with_baton(
+            required_str(args, "baton_id")?,
+            required_str(args, "target")?,
+            required_i64(args, "base_version")?,
+            required_str(args, "summary")?,
+            args.get("change").cloned().unwrap_or(Value::Null),
+            session,
+        )?)?,
         "handoff_create" => as_json(create_handoff(engine, session, args)?)?,
         "handoff_list" => as_json(engine.list_handoffs()?)?,
         "handoff_get" => as_json(engine.get_handoff(required_str(args, "handoff_id")?)?)?,

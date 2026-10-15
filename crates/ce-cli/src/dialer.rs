@@ -190,17 +190,30 @@ fn forward(link: &mut Link, session_id: &str, document: &Value) {
             continue;
         }
         let prepared = with_protocol(&message);
-        let Ok((status, body)) = link.exchange(
+        let id = prepared.get("id").cloned().unwrap_or(Value::Null);
+        let exchanged = link.exchange(
             "POST",
             "/mcp",
             Some(&prepared),
             Some(&mcp_headers(&prepared, session_id)),
-        ) else {
-            write_stdout(
-                &json!({"jsonrpc": "2.0", "id": prepared.get("id").cloned().unwrap_or(Value::Null), "error": {"code": -32000, "message": "transport failed"}}),
-            );
-            continue;
+        );
+        let (status, body) = match exchanged {
+            Ok((status, body)) => (status, body),
+            Err(err) if err.code == "limit_exceeded" => {
+                write_stdout(&limit_exceeded_rpc(id, err.to_value()));
+                continue;
+            }
+            Err(_) => {
+                write_stdout(
+                    &json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32000, "message": "transport failed"}}),
+                );
+                continue;
+            }
         };
+        if status == 413 || body.get("error").and_then(Value::as_str) == Some("limit_exceeded") {
+            write_stdout(&limit_exceeded_rpc(id, body));
+            continue;
+        }
         if status == 202 {
             continue;
         }
@@ -210,6 +223,18 @@ fn forward(link: &mut Link, session_id: &str, document: &Value) {
     }
     stop.store(true, Ordering::Relaxed);
     let _ = notify.join();
+}
+
+fn limit_exceeded_rpc(id: Value, data: Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": -32000,
+            "message": "limit_exceeded",
+            "data": data
+        }
+    })
 }
 
 fn with_protocol(message: &Value) -> Value {
@@ -455,9 +480,14 @@ fn open_notify(hint: &Value) -> Result<Box<dyn Connection>, CommonroomError> {
         .get("address")
         .and_then(Value::as_str)
         .unwrap_or("127.0.0.1");
-    if matches!(host, "127.0.0.1" | "localhost") {
+    if matches!(host, "127.0.0.1" | "localhost" | "::1") {
         if let Some(port) = hint.get("port").and_then(Value::as_u64) {
-            let address = format!("{host}:{port}")
+            let address = if host == "::1" {
+                format!("[::1]:{port}")
+            } else {
+                format!("{host}:{port}")
+            };
+            let address = address
                 .parse()
                 .map_err(|_| ce_protocol::transport_unavailable("connect failed"))?;
             let sock = TcpStream::connect_timeout(&address, Duration::from_secs(2))

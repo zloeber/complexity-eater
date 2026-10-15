@@ -88,18 +88,39 @@ Your capabilities are the ones in the invitation. Asking for more does nothing. 
 
 ## Work in this order
 
-1. `workspace.status`
-2. `workspace.summary`
-3. `workspace.read` for one region, with `max_lines` or `max_bytes`
-4. `workspace.checkout` for that region
-5. `workspace.propose` against the `base_version` you just read
-6. Wait until the proposal is `approved`
-7. `workspace.commit` with the `proposal_id`
-8. `workspace.release`
+HTTP operations use dots (`workspace.propose`). MCP tools use underscores (`workspace_propose`). They call the same engine.
+
+1. `workspace_status` — version, heading count, and `mode` (`review` or `baton`)
+2. `workspace_summary`
+3. `workspace_regions` for a page of full paths (`depth`, `under`, `cursor`)
+4. `workspace_read` for one region. A read with no section is a short excerpt (`truncated`, `continuation`, `next_offset`)
+5. In `review` mode: `workspace_checkout`, then `workspace_propose`, wait until `approved`, then `workspace_commit` with `proposal_id`
+6. In `baton` mode: `workspace_baton_request`, then `workspace_write` while you hold it. Release with `workspace_baton_release`
+7. `workspace_release` when you drop a lease
 
 Do this. Do not read the whole artifact and write it back.
 
-`workspace.commit` of a raw document requires the host capability. A normal session commits the approved proposal only.
+`workspace_commit` requires `proposal_id`. It does not accept a raw document. A raw overwrite is a separate host action.
+
+### The change object
+
+`workspace_propose` and `workspace_write` take:
+
+```json
+{"content": "## Plan\n\n- the new text\n", "section": "Doc/Plan"}
+```
+
+`content` is required. It replaces the target region, including that heading, and leaves every other region in place. `section`, when you send it, must name the same region as `target`. A bare title that matches more than one heading returns `invalid_region` and `details.candidates`. Use the full path from `workspace_regions`.
+
+Whole-file replacement is explicit: `change.mode` is `document`, or `target` is `workspace`. The review page shows that as a whole-document replacement.
+
+### Room mode
+
+`review` is the default: propose, then someone with `approve` accepts, then commit. Unrelated regions can land together. A second proposal on a region that changed returns `stale_version`.
+
+`baton` lets the holder write with `workspace_write` and no approval. Request `workspace_baton_request` with optional `minutes` and `reason`. A request above the room cap is clamped; the result's `expires_at` is the real deadline. If someone else holds it, you get `baton_held` with `details.holder` and `details.expires_at`. Renew with `workspace_baton_renew`. `workspace_status` includes `baton_max_renewals` when the room caps extensions of one grant. At that cap, renew and a repeat request return `baton_renewal_limit` with `details.renewals` and `details.max_renewals`. Release the baton; the next request starts a new grant. An expired baton returns `baton_expired` and does not change the file. A write without a baton returns `baton_required`. Reads stay open. `workspace_propose` still works as an advisory path for people who do not hold the baton.
+
+Only the host (`admin`) can switch modes or revoke the baton. Switching back to `review` revokes the baton, and `workspace_write` then returns `mode_mismatch`. A default invitation cannot do either.
 
 `workspace.observe` and `workspace.history` tell you what the room did while you waited. `workspace.diagnostics` tells you which transport plugin is listening. It does not reveal the endpoint.
 
@@ -113,7 +134,7 @@ The other participant calls `handoff_accept`, then `handoff_complete` with the r
 
 ## Regions
 
-Markdown regions are heading paths such as `Architecture` or `Architecture/Goals`. Checkout `section:Architecture`. Read that section instead of the file.
+Markdown regions are ATX heading paths such as `Architecture` or `Architecture/Goals`. A heading needs a space after the hashes. Text inside a fenced code block is not a heading. Setext headings (`===` / `---`) are not regions. Checkout `section:Architecture` or the full path. Read that section instead of the file. If a name matches more than one heading, pass the full path.
 
 ## Leases
 
@@ -123,7 +144,9 @@ A lease expires (about 15 minutes) and everyone can see it. `lease_conflict` mea
 
 `stale_version` means the room moved. Do not retry the same body. Read `current_version`, `diff`, and `changes`. Look again, then write a new proposal.
 
-Other codes you can act on: `unauthorized`, `permission_denied`, `invitation_expired`, `invitation_revoked`, `invitation_redeemed`, `unsupported_version`, `session_expired`, `proposal_conflict`, `invalid_region`, `transport_unavailable`.
+Other codes you can act on: `unauthorized`, `permission_denied`, `invitation_expired`, `invitation_revoked`, `invitation_redeemed`, `unsupported_version`, `session_expired`, `proposal_conflict`, `invalid_region`, `limit_exceeded`, `baton_held`, `baton_required`, `baton_expired`, `baton_renewal_limit`, `mode_mismatch`, `transport_unavailable`.
+
+`limit_exceeded` includes `details.limit` and `details.size`. `invalid_region` for an ambiguous name includes `details.candidates`.
 
 Branch on the `error` field. Do not scrape the message.
 

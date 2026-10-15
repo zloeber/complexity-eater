@@ -34,6 +34,15 @@ const RECOVERY_FIELDS: &[&str] = &[
     "lease_id",
     "proposal_id",
     "region",
+    "candidates",
+    "limit",
+    "size",
+    "holder",
+    "expires_at",
+    "baton_id",
+    "mode",
+    "renewals",
+    "max_renewals",
 ];
 
 pub const ERROR_CODES: &[&str] = &[
@@ -53,6 +62,11 @@ pub const ERROR_CODES: &[&str] = &[
     "transport_unavailable",
     "limit_exceeded",
     "invalid_request",
+    "baton_held",
+    "baton_required",
+    "baton_expired",
+    "baton_renewal_limit",
+    "mode_mismatch",
 ];
 
 #[derive(Clone, Debug)]
@@ -207,6 +221,46 @@ pub const OPERATIONS: &[Operation] = &[
         name: "workspace.leave",
         http: "POST /workspace/leave",
         capability: "read",
+    },
+    Operation {
+        name: "workspace.mode",
+        http: "POST /workspace/mode",
+        capability: "admin",
+    },
+    Operation {
+        name: "workspace.baton_request",
+        http: "POST /workspace/baton/request",
+        capability: "commit",
+    },
+    Operation {
+        name: "workspace.baton_renew",
+        http: "POST /workspace/baton/renew",
+        capability: "commit",
+    },
+    Operation {
+        name: "workspace.baton_release",
+        http: "POST /workspace/baton/release",
+        capability: "commit",
+    },
+    Operation {
+        name: "workspace.baton_status",
+        http: "GET /workspace/baton",
+        capability: "read",
+    },
+    Operation {
+        name: "workspace.baton_revoke",
+        http: "POST /workspace/baton/revoke",
+        capability: "admin",
+    },
+    Operation {
+        name: "workspace.write",
+        http: "POST /workspace/write",
+        capability: "commit",
+    },
+    Operation {
+        name: "workspace.revert",
+        http: "POST /workspace/revert",
+        capability: "admin",
     },
     Operation {
         name: "session.join",
@@ -372,6 +426,26 @@ pub fn limit_exceeded(message: impl Into<String>) -> CommonroomError {
 
 pub fn invalid_request(message: impl Into<String>) -> CommonroomError {
     CommonroomError::new("invalid_request", 400, message)
+}
+
+pub fn baton_held(message: impl Into<String>) -> CommonroomError {
+    CommonroomError::new("baton_held", 409, message)
+}
+
+pub fn baton_required(message: impl Into<String>) -> CommonroomError {
+    CommonroomError::new("baton_required", 409, message)
+}
+
+pub fn baton_expired(message: impl Into<String>) -> CommonroomError {
+    CommonroomError::new("baton_expired", 409, message)
+}
+
+pub fn baton_renewal_limit(message: impl Into<String>) -> CommonroomError {
+    CommonroomError::new("baton_renewal_limit", 409, message)
+}
+
+pub fn mode_mismatch(message: impl Into<String>) -> CommonroomError {
+    CommonroomError::new("mode_mismatch", 409, message)
 }
 
 pub fn internal_error(message: impl Into<String>) -> CommonroomError {

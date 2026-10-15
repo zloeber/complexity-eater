@@ -14,7 +14,7 @@ Decoding a version other than `"1"` returns `unsupported_version` from the CLI. 
 
 ## HTTP
 
-Errors are JSON `{error, message, details}` plus recovery fields at the top level when they apply: `base_version`, `current_version`, `expected_version`, `diff`, `changes`, `retry_after_seconds`, `lease_id`, `proposal_id`, `region`.
+Errors are JSON `{error, message, details}` plus recovery fields at the top level when they apply: `base_version`, `current_version`, `expected_version`, `diff`, `changes`, `retry_after_seconds`, `lease_id`, `proposal_id`, `region`, `candidates`, `limit`, `size`, `holder`, `expires_at`, `baton_id`, `mode`.
 
 | Code | Status |
 | --- | --- |
@@ -30,8 +30,19 @@ Errors are JSON `{error, message, details}` plus recovery fields at the top leve
 | `invalid_region` | 400 |
 | `version_not_found` | 404 |
 | `transport_unavailable` | 503 |
-| `limit_exceeded` | 429 or 413 for an oversized body |
+| `limit_exceeded` | 429 or 413 for an oversized body. `details.limit` and `details.size` say which cap and how large the body was. `ce mcp` returns that error instead of `transport failed`. |
 | `invalid_request` | 400 |
+| `baton_held` | 409. `details.holder` and `details.expires_at` name the current grant. |
+| `baton_required` | 409 |
+| `baton_expired` | 409 |
+| `baton_renewal_limit` | 409. `details.renewals` and `details.max_renewals` are the count on this grant and the cap. |
+| `mode_mismatch` | 409 |
+
+A proposal's `target` is the region it edits. `change.content` replaces that region. `change.section` must name the same region. `change.mode` of `document`, or target `workspace`, replaces the whole file. A bare heading that matches more than one region is `invalid_region` with `details.candidates`. A commit rebases onto the current file when the proposal's region, its ancestors, and its descendants are unchanged. Overlap still returns `stale_version`.
+
+`workspace_status` reports `heading_count`, `mode`, `baton_max_minutes`, `baton_max_renewals` when a cap is set, and the current baton including `renewals`. It does not embed the heading tree. `workspace_regions` is paged. `workspace_read` with no section returns a bounded excerpt and `truncated: true`.
+
+The owner page sets `commonroom_session` only after the one-time token in the printed `Human:` URL. Requests to that listener must use `Host: 127.0.0.1:<port>`, `localhost:<port>`, or `[::1]:<port>`. A mutating request with a foreign `Origin`, or `Sec-Fetch-Site: cross-site`, is rejected.
 
 `GET /workspace/observe` is a server-sent event stream for a session with `observe`. Send `Last-Event-ID` or `since_event_id` to resume. The stream replays events still in the sidecar ring, then pushes new ones. `event: resync` means the cursor fell off the ring or the subscriber lagged; read `/workspace/room` again. Heartbeats are comment lines. The retry hint is 5 seconds. A revoked session ends the stream. Authenticated HTTP requests are limited to 600 per minute per bearer. The observe stream counts as one request. List endpoints accept 1 to 200 items.
 

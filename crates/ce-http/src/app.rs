@@ -11,8 +11,8 @@ use axum::routing::{get, post};
 use axum::{middleware, Router};
 use ce_core::{load_skill, Session, Status, WorkspaceEngine};
 use ce_protocol::{
-    discovery_document, has_capability, invalid_request, limit_exceeded, protocol_document,
-    unauthorized, CommonroomError,
+    discovery_document, has_capability, invalid_request, limit_exceeded, permission_denied,
+    protocol_document, unauthorized, CommonroomError,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -28,10 +28,39 @@ pub enum Access {
     Session,
 }
 
+pub struct OwnerGate {
+    pub port: u16,
+    secret: Mutex<Option<String>>,
+}
+
+impl OwnerGate {
+    pub fn issue(port: u16) -> (Self, String) {
+        let secret = owner_token();
+        (
+            Self {
+                port,
+                secret: Mutex::new(Some(secret.clone())),
+            },
+            secret,
+        )
+    }
+
+    fn take(&self, token: &str) -> bool {
+        let mut slot = self.secret.lock().expect("owner secret");
+        if slot.as_deref() == Some(token) {
+            *slot = None;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 pub struct AppState {
     pub engine: Arc<WorkspaceEngine>,
     pub access: Access,
     pub host_session: Option<Session>,
+    gate: Option<Arc<OwnerGate>>,
     rate: Mutex<HashMap<String, Vec<Instant>>>,
     hub: Option<Arc<NotifyHub>>,
 }
@@ -40,6 +69,15 @@ pub fn create_router(
     engine: Arc<WorkspaceEngine>,
     access: Access,
     host_session: Option<Session>,
+) -> Router {
+    create_router_with(engine, access, host_session, None)
+}
+
+pub fn create_router_with(
+    engine: Arc<WorkspaceEngine>,
+    access: Access,
+    host_session: Option<Session>,
+    gate: Option<Arc<OwnerGate>>,
 ) -> Router {
     let max_bytes = engine.limits().max_request_bytes;
     let hub = if access == Access::Session {
@@ -51,6 +89,7 @@ pub fn create_router(
         engine,
         access,
         host_session,
+        gate,
         rate: Mutex::new(HashMap::new()),
         hub,
     });
@@ -93,6 +132,14 @@ pub fn create_router(
         .route("/workspace/leave", post(leave))
         .route("/workspace/participant/remove", post(remove_participant))
         .route("/workspace/observe", get(observe))
+        .route("/workspace/mode", post(set_mode))
+        .route("/workspace/baton", get(baton_status))
+        .route("/workspace/baton/request", post(baton_request))
+        .route("/workspace/baton/renew", post(baton_renew))
+        .route("/workspace/baton/release", post(baton_release))
+        .route("/workspace/baton/revoke", post(baton_revoke))
+        .route("/workspace/write", post(baton_write))
+        .route("/workspace/revert", post(revert_version))
         .route("/", get(index));
     if access == Access::Session {
         router = router.route("/mcp", post(mcp_post).get(mcp_get).delete(mcp_unused));
@@ -127,6 +174,11 @@ fn json_error(status: u16, body: &Value) -> Response {
 }
 
 async fn trace_request(state: Arc<AppState>, req: Request, next: Next) -> Response {
+    if state.access == Access::Owner {
+        if let Some(response) = owner_request_guard(&state, &req) {
+            return response;
+        }
+    }
     if let Some(len) = req
         .headers()
         .get(header::CONTENT_LENGTH)
@@ -134,9 +186,16 @@ async fn trace_request(state: Arc<AppState>, req: Request, next: Next) -> Respon
     {
         if let Ok(n) = len.parse::<usize>() {
             if n > state.engine.limits().max_request_bytes {
+                let limit = state.engine.limits().max_request_bytes;
                 return json_error(
                     413,
-                    &json!({"error": "limit_exceeded", "message": "request too large"}),
+                    &json!({
+                        "error": "limit_exceeded",
+                        "message": "request too large",
+                        "limit": limit,
+                        "size": n,
+                        "details": {"limit": limit, "size": n}
+                    }),
                 );
             }
         }
@@ -347,13 +406,27 @@ async fn workspace_summary(
     )
 }
 
+#[derive(Deserialize, Default)]
+struct RegionQuery {
+    depth: Option<i64>,
+    under: Option<String>,
+    cursor: Option<i64>,
+    limit: Option<i64>,
+}
+
 async fn workspace_regions(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    Query(query): Query<RegionQuery>,
 ) -> Result<Response, AppError> {
     let session = principal(&state, &headers, "anon")?;
     state.engine.require(&session, "read")?;
-    json_ok(state.engine.regions()?)
+    json_ok(state.engine.regions_page(
+        query.depth,
+        query.under.as_deref(),
+        query.cursor,
+        query.limit,
+    )?)
 }
 
 #[derive(Deserialize, Default)]
@@ -361,6 +434,7 @@ struct ReadQuery {
     section: Option<String>,
     max_lines: Option<i64>,
     max_bytes: Option<i64>,
+    offset: Option<i64>,
 }
 
 async fn workspace_read(
@@ -370,11 +444,12 @@ async fn workspace_read(
 ) -> Result<Response, AppError> {
     let session = principal(&state, &headers, "anon")?;
     state.engine.require(&session, "read")?;
-    json_ok(
-        state
-            .engine
-            .read(query.section.as_deref(), query.max_lines, query.max_bytes)?,
-    )
+    json_ok(state.engine.read_with_offset(
+        query.section.as_deref(),
+        query.max_lines,
+        query.max_bytes,
+        query.offset,
+    )?)
 }
 
 #[derive(Deserialize, Default)]
@@ -649,6 +724,7 @@ async fn room(
         "events": state.engine.history(20, None)?,
         "summary": state.engine.summary(20, 2048, None)?,
         "diagnostics": state.engine.connection_diagnostics()?,
+        "commits": state.engine.recent_commits(8)?,
     });
     if has_capability(&session.capabilities, "invite") {
         payload["invites"] =
@@ -894,21 +970,162 @@ async fn observe(
     ))
 }
 
-async fn index(State(state): State<Arc<AppState>>, _headers: HeaderMap) -> Response {
+async fn index(State(state): State<Arc<AppState>>, request: Request) -> Response {
     if state.access == Access::Owner {
+        if let Some(gate) = &state.gate {
+            let presented = query_param(request.uri().query(), "token");
+            if presented.as_deref().is_some_and(|token| gate.take(token)) {
+                if let Some(session) = &state.host_session {
+                    let mut response = (
+                        StatusCode::SEE_OTHER,
+                        [(header::LOCATION, "/")],
+                        Html(include_str!("owner.html")),
+                    )
+                        .into_response();
+                    if let Ok(value) = session_cookie(&session.session_id).parse() {
+                        response.headers_mut().insert(header::SET_COOKIE, value);
+                    }
+                    return response;
+                }
+            }
+            return Html(include_str!("owner.html")).into_response();
+        }
         if let Some(session) = &state.host_session {
             let mut response = Html(include_str!("owner.html")).into_response();
-            let cookie = format!(
-                "commonroom_session={}; HttpOnly; SameSite=Strict; Path=/",
-                session.session_id
-            );
-            if let Ok(value) = cookie.parse() {
+            if let Ok(value) = session_cookie(&session.session_id).parse() {
                 response.headers_mut().insert(header::SET_COOKIE, value);
             }
             return response;
         }
     }
     Html(include_str!("ingress.html")).into_response()
+}
+
+async fn set_mode(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    let payload = object(&body)?;
+    let mode = payload
+        .get("mode")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid_request("mode is required"))?;
+    json_ok(json!({"mode": state.engine.set_room_mode(mode, Some(&session))?}))
+}
+
+async fn baton_status(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    state.engine.require(&session, "read")?;
+    json_ok(state.engine.baton_status()?)
+}
+
+async fn baton_request(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    let payload = if body.is_empty() {
+        json!({})
+    } else {
+        object(&body)?
+    };
+    json_ok(state.engine.baton_request(
+        payload.get("minutes").and_then(Value::as_i64),
+        payload.get("reason").and_then(Value::as_str),
+        &session,
+    )?)
+}
+
+async fn baton_renew(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    let payload = object(&body)?;
+    let baton_id = payload
+        .get("baton_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid_request("baton_id is required"))?;
+    json_ok(state.engine.baton_renew(
+        baton_id,
+        payload.get("minutes").and_then(Value::as_i64),
+        &session,
+    )?)
+}
+
+async fn baton_release(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    let payload = object(&body)?;
+    let baton_id = payload
+        .get("baton_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid_request("baton_id is required"))?;
+    state.engine.baton_release(baton_id, &session)?;
+    json_ok(json!({"status": "ok"}))
+}
+
+async fn baton_revoke(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    state.engine.baton_revoke(&session)?;
+    json_ok(json!({"status": "ok"}))
+}
+
+async fn baton_write(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    let payload = object(&body)?;
+    let baton_id = payload
+        .get("baton_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid_request("baton_id is required"))?;
+    let target = payload
+        .get("target")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid_request("target is required"))?;
+    json_ok(
+        state.engine.write_with_baton(
+            baton_id,
+            target,
+            payload
+                .get("base_version")
+                .and_then(Value::as_i64)
+                .unwrap_or(0),
+            payload.get("summary").and_then(Value::as_str).unwrap_or(""),
+            payload.get("change").cloned().unwrap_or(Value::Null),
+            &session,
+        )?,
+    )
+}
+
+async fn revert_version(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    let payload = object(&body)?;
+    let version = payload
+        .get("version")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| invalid_request("version is required"))?;
+    json_ok(state.engine.revert_to(version, &session)?)
 }
 
 async fn mcp_post(State(state): State<Arc<AppState>>, headers: HeaderMap, body: Bytes) -> Response {
@@ -964,4 +1181,109 @@ async fn mcp_unused() -> Response {
 
 fn truncate(value: &str, max_chars: usize) -> String {
     value.chars().take(max_chars).collect()
+}
+
+fn session_cookie(session_id: &str) -> String {
+    format!("commonroom_session={session_id}; HttpOnly; SameSite=Strict; Path=/")
+}
+
+fn query_param(query: Option<&str>, name: &str) -> Option<String> {
+    let query = query?;
+    for pair in query.split('&') {
+        let mut parts = pair.splitn(2, '=');
+        if parts.next()? == name {
+            return Some(parts.next().unwrap_or("").to_string());
+        }
+    }
+    None
+}
+
+fn owner_token() -> String {
+    use std::io::Read;
+    let mut bytes = [0u8; 18];
+    let mut file = std::fs::File::open("/dev/urandom").expect("urandom");
+    file.read_exact(&mut bytes).expect("urandom");
+    hex::encode(bytes)
+}
+
+fn owner_request_guard(state: &AppState, req: &Request) -> Option<Response> {
+    let host = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    let expected = state.gate.as_ref().map(|gate| gate.port);
+    if !owner_host_allowed(host, expected) {
+        return Some(json_error(
+            400,
+            &invalid_request("host is not the local owner listener").to_value(),
+        ));
+    }
+    if !is_mutating(req.method()) {
+        return None;
+    }
+    let Some(gate) = &state.gate else {
+        return None;
+    };
+    if req
+        .headers()
+        .get("sec-fetch-site")
+        .and_then(|value| value.to_str().ok())
+        == Some("cross-site")
+    {
+        return Some(json_error(
+            403,
+            &permission_denied("cross-site request rejected").to_value(),
+        ));
+    }
+    if let Some(origin) = req
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+    {
+        let allowed = [
+            format!("http://127.0.0.1:{}", gate.port),
+            format!("http://localhost:{}", gate.port),
+            format!("http://[::1]:{}", gate.port),
+        ];
+        if !allowed.iter().any(|item| item == origin) {
+            return Some(json_error(
+                403,
+                &permission_denied("cross-site request rejected").to_value(),
+            ));
+        }
+    }
+    None
+}
+
+fn is_mutating(method: &axum::http::Method) -> bool {
+    matches!(
+        *method,
+        axum::http::Method::POST
+            | axum::http::Method::PUT
+            | axum::http::Method::PATCH
+            | axum::http::Method::DELETE
+    )
+}
+
+fn owner_host_allowed(value: &str, port: Option<u16>) -> bool {
+    let value = value.trim();
+    let (name, seen_port) = if let Some(rest) = value.strip_prefix('[') {
+        let Some((name, rest)) = rest.split_once(']') else {
+            return false;
+        };
+        let seen = rest.strip_prefix(':').and_then(|text| text.parse().ok());
+        (name, seen)
+    } else if let Some((name, port_text)) = value.rsplit_once(':') {
+        (name, port_text.parse().ok())
+    } else {
+        (value, None)
+    };
+    if !matches!(name, "127.0.0.1" | "localhost" | "::1") {
+        return false;
+    }
+    match port {
+        Some(expected) => seen_port == Some(expected),
+        None => true,
+    }
 }

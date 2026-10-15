@@ -39,6 +39,12 @@ pub const HANDOFF_REJECTED: &str = "handoff.rejected";
 pub const HANDOFF_CANCELLED: &str = "handoff.cancelled";
 pub const TASK_CREATED: &str = "task.created";
 pub const TASK_UPDATED: &str = "task.updated";
+pub const BATON_GRANTED: &str = "baton.granted";
+pub const BATON_RENEWED: &str = "baton.renewed";
+pub const BATON_RELEASED: &str = "baton.released";
+pub const BATON_EXPIRED: &str = "baton.expired";
+pub const BATON_REVOKED: &str = "baton.revoked";
+pub const ROOM_MODE_CHANGED: &str = "room.mode_changed";
 
 pub const KNOWN_EVENT_TYPES: &[&str] = &[
     WORKSPACE_CREATED,
@@ -68,6 +74,12 @@ pub const KNOWN_EVENT_TYPES: &[&str] = &[
     HANDOFF_CANCELLED,
     TASK_CREATED,
     TASK_UPDATED,
+    BATON_GRANTED,
+    BATON_RENEWED,
+    BATON_RELEASED,
+    BATON_EXPIRED,
+    BATON_REVOKED,
+    ROOM_MODE_CHANGED,
 ];
 
 const SECRET_KEYS: &[&str] = &[
