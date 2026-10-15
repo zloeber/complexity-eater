@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Complexity Eater — Different minds. Shared work.</title>
+<style>
+  :root{
+    --bg:#0d0f14;
+    --surface:#151820;
+    --surface2:#1b1f2b;
+    --navy:#0f172a;
+    --border:#252a38;
+    --text:#cdd5e4;
+    --text-hi:#e2e8f0;
+    --muted:#8b96ad;
+    --cyan:#22d3ee;
+    --sky:#38bdf8;
+    --indigo:#6366f1;
+    --green:#34d399;
+    --amber:#fbbf24;
+    --rose:#fb7185;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'Helvetica Neue', Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font);
+    -webkit-font-smoothing:antialiased;
+    overflow:hidden;
+  }
+  #progress-track{
+    position:fixed;top:0;left:0;right:0;height:3px;
+    background:#1a1e29;z-index:60;
+  }
+  #progress-bar{
+    height:100%;width:0%;
+    background:linear-gradient(90deg,#6366f1 0%,#38bdf8 55%,#22d3ee 100%);
+    transition:width .35s ease;
+    box-shadow:0 0 12px rgba(56,189,248,.45);
+  }
+  header#brand{
+    position:fixed;top:0;left:0;right:0;height:52px;
+    display:flex;align-items:center;gap:11px;
+    padding:0 30px;z-index:50;pointer-events:none;
+  }
+  .brand-glyph{width:22px;height:22px;flex:0 0 auto;}
+  .brand-text{
+    font-size:12.5px;font-weight:700;letter-spacing:.18em;
+    text-transform:uppercase;color:#9fb0c9;
+  }
+  .brand-text b{color:var(--cyan);font-weight:700;}
+  .brand-sep{width:1px;height:14px;background:var(--border);}
+  .brand-sub{
+    font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#5d6880;
+  }
+  footer#deckbar{
+    position:fixed;bottom:0;left:0;right:0;height:58px;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:0 26px;z-index:50;
+    background:linear-gradient(0deg,rgba(13,15,20,.96),rgba(13,15,20,0));
+  }
+  .foot-brand{
+    font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#5d6880;
+  }
+  .nav{display:flex;align-items:center;gap:10px;}
+  .navbtn{
+    font-family:var(--font);font-size:12.5px;font-weight:600;
+    letter-spacing:.06em;
+    color:var(--text-hi);background:var(--surface2);
+    border:1px solid var(--border);border-radius:8px;
+    padding:8px 15px;cursor:pointer;
+  }
+  .navbtn:hover:not(:disabled){border-color:var(--sky);color:#fff;background:#202634;}
+  .navbtn:disabled{opacity:.32;cursor:default;}
+  .counter{
+    font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.1em;
+    color:var(--muted);min-width:62px;text-align:center;
+  }
+  .counter b{color:var(--cyan);}
+  main#deck{position:relative;width:100vw;height:100vh;}
+  section.slide{
+    position:absolute;inset:0;
+    width:100vw;height:100vh;
+    display:none;
+    flex-direction:column;
+    align-items:center;justify-content:center;
+    padding:78px clamp(26px,5vw,86px) 84px;
+    opacity:0;
+  }
+  section.slide.active{
+    display:flex;
+    animation:rise .42s cubic-bezier(.22,.7,.3,1) forwards;
+  }
+  @keyframes rise{
+    from{opacity:0;transform:translateY(14px);}
+    to{opacity:1;transform:none;}
+  }
+  .wrap{width:100%;max-width:1180px;margin:0 auto;}
+  .eyebrow{
+    font-size:11.5px;font-weight:700;letter-spacing:.24em;text-transform:uppercase;
+    color:var(--cyan);margin:0 0 14px;
+  }
+  .eyebrow.indigo{color:#8b8ef7;}
+  .eyebrow.green{color:var(--green);}
+  .eyebrow.amber{color:var(--amber);}
+  h1{
+    font-size:clamp(30px,4.4vw,58px);line-height:1.06;
+    letter-spacing:-.022em;font-weight:800;
+    color:#f2f6fc;margin:0 0 18px;
+  }
+  h2{
+    font-size:clamp(25px,3.3vw,41px);line-height:1.12;
+    letter-spacing:-.018em;font-weight:800;
+    color:#f2f6fc;margin:0 0 12px;
+  }
+  .lede{
+    font-size:clamp(15px,1.35vw,19px);line-height:1.55;
+    color:var(--text);max-width:74ch;margin:0 0 22px;
+  }
+  .lede strong{color:#fff;font-weight:700;}
+  ul.points{
+    list-style:none;padding:0;margin:0;
+    display:flex;flex-direction:column;gap:11px;
+  }
+  ul.points li{
+    position:relative;padding-left:24px;
+    font-size:clamp(14px,1.22vw,17.5px);line-height:1.45;color:var(--text);
+  }
+  ul.points li::before{
+    content:"";position:absolute;left:2px;top:.55em;
+    width:8px;height:8px;border-radius:2px;
+    background:var(--cyan);box-shadow:0 0 9px rgba(34,211,238,.6);
+  }
+  ul.points li b{color:#fff;font-weight:700;}
+  ul.points.green li::before{background:var(--green);box-shadow:0 0 9px rgba(52,211,153,.55);}
+  ul.points.amber li::before{background:var(--amber);box-shadow:0 0 9px rgba(251,191,36,.5);}
+  .split{
+    display:grid;grid-template-columns:minmax(0,0.92fr) minmax(0,1.08fr);
+    gap:clamp(24px,4vw,60px);align-items:center;
+  }
+  .art{width:100%;}
+  .art svg{width:100%;height:auto;display:block;}
+  .full-art{width:100%;max-width:1080px;margin:6px auto 0;}
+  .full-art svg{width:100%;height:auto;display:block;}
+  .center{text-align:center;}
+  .center .lede{margin-left:auto;margin-right:auto;}
+  .chips{display:flex;flex-wrap:wrap;gap:9px;margin-top:20px;justify-content:center;}
+  .chip{
+    font-size:11.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+    color:#9fb0c9;background:var(--navy);
+    border:1px solid var(--border);border-radius:999px;padding:7px 14px;
+  }
+  .chip.cy{color:#a6ecfa;border-color:#1e4d5c;}
+  .chip.gr{color:#a7f3d0;border-color:#1c4d3d;}
+  .chip.in{color:#c3c4fb;border-color:#31356b;}
+  .chip.am{color:#fde68a;border-color:#5c4314;}
+  .cards{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+    gap:16px;margin-top:26px;
+  }
+  .card{
+    background:linear-gradient(160deg,var(--surface2) 0%,var(--surface) 100%);
+    border:1px solid var(--border);border-radius:13px;
+    padding:18px 18px 17px;text-align:left;
+  }
+  .card h3{
+    margin:0 0 7px;font-size:14.5px;font-weight:700;letter-spacing:.01em;color:#f0f4fa;
+    display:flex;align-items:center;gap:9px;
+  }
+  .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;}
+  .dot.cy{background:var(--cyan);box-shadow:0 0 9px rgba(34,211,238,.7);}
+  .dot.gr{background:var(--green);box-shadow:0 0 9px rgba(52,211,153,.7);}
+  .dot.in{background:var(--indigo);box-shadow:0 0 9px rgba(99,102,241,.7);}
+  .dot.am{background:var(--amber);box-shadow:0 0 9px rgba(251,191,36,.6);}
+  .card p{margin:0;font-size:13.5px;line-height:1.5;color:#a8b4c9;}
+  .card p b{color:var(--text-hi);font-weight:700;}
+  .url{
+    display:inline-block;margin-top:8px;
+    font-size:clamp(16px,2vw,26px);font-weight:750;letter-spacing:-.02em;
+    color:#e7fbff;background:#0f172a;
+    border:1px solid #1e4d5c;border-radius:12px;
+    padding:12px 18px;
+  }
+  .kbdhint{
+    position:fixed;bottom:64px;left:50%;transform:translateX(-50%);
+    font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:#4a5468;
+    z-index:40;pointer-events:none;
+  }
+  kbd{
+    font-family:var(--font);font-size:10px;border:1px solid #2b3141;
+    border-radius:4px;padding:1px 5px;color:#7d8798;background:#171b24;
+  }
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;color:#d7f6ff;}
+  @media (max-width:900px){
+    .split{grid-template-columns:1fr;gap:22px;}
+    .kbdhint{display:none;}
+  }
+</style>
+</head>
+<body>
+<div id="progress-track"><div id="progress-bar"></div></div>
+<header id="brand">
+  <svg class="brand-glyph" viewBox="0 0 32 32" aria-hidden="true">
+    <path d="M16 3 L28 9.5 V21 L16 29 L4 21 V9.5 Z" fill="none" stroke="#22d3ee" stroke-width="2"/>
+    <circle cx="16" cy="16" r="3.4" fill="#38bdf8"/>
+  </svg>
+  <span class="brand-text">Complexity <b>Eater</b></span>
+  <span class="brand-sep"></span>
+  <span class="brand-sub">Different minds. Shared work.</span>
+</header>
+<main id="deck">
+
+<section class="slide" data-title="Different minds. Shared work.">
+  <div class="wrap center">
+    <div class="full-art" style="max-width:780px;margin-bottom:18px;">
+      <svg viewBox="0 0 780 200" role="img" aria-label="Two people and two agents around one markdown page">
+        <ellipse cx="390" cy="128" rx="340" ry="70" fill="#22d3ee" opacity=".06"/>
+        <rect x="300" y="28" width="180" height="110" rx="10" fill="#0f172a" stroke="#252a38"/>
+        <rect x="316" y="46" width="92" height="7" rx="3" fill="#22d3ee"/>
+        <rect x="316" y="62" width="140" height="6" rx="3" fill="#34d399" opacity=".7"/>
+        <rect x="316" y="76" width="120" height="6" rx="3" fill="#6366f1" opacity=".7"/>
+        <rect x="316" y="90" width="148" height="6" rx="3" fill="#2b3244"/>
+        <rect x="316" y="104" width="80" height="6" rx="3" fill="#2b3244"/>
+        <g>
+          <circle cx="150" cy="78" r="16" fill="none" stroke="#38bdf8" stroke-width="2.4"/>
+          <path d="M122 128 q4 -28 28 -28 q24 0 28 28" fill="none" stroke="#38bdf8" stroke-width="2.4"/>
+          <text x="150" y="156" text-anchor="middle" font-size="12" font-weight="700" fill="#9fd8ef" letter-spacing="1.4">MORGAN</text>
+        </g>
+        <g>
+          <rect x="214" y="64" width="30" height="30" rx="8" fill="none" stroke="#6366f1" stroke-width="2.4"/>
+          <circle cx="224" cy="79" r="2.6" fill="#8b8ef7"/><circle cx="234" cy="79" r="2.6" fill="#8b8ef7"/>
+          <text x="229" y="156" text-anchor="middle" font-size="12" font-weight="700" fill="#b6b8fa" letter-spacing="1.4">AGENT</text>
+        </g>
+        <g>
+          <circle cx="630" cy="78" r="16" fill="none" stroke="#34d399" stroke-width="2.4"/>
+          <path d="M602 128 q4 -28 28 -28 q24 0 28 28" fill="none" stroke="#34d399" stroke-width="2.4"/>
+          <text x="630" y="156" text-anchor="middle" font-size="12" font-weight="700" fill="#a7f3d0" letter-spacing="1.4">JORDAN</text>
+        </g>
+        <g>
+          <rect x="536" y="64" width="30" height="30" rx="8" fill="none" stroke="#fbbf24" stroke-width="2.4"/>
+          <circle cx="546" cy="79" r="2.6" fill="#fde68a"/><circle cx="556" cy="79" r="2.6" fill="#fde68a"/>
+          <text x="551" y="156" text-anchor="middle" font-size="12" font-weight="700" fill="#fde68a" letter-spacing="1.4">AGENT</text>
+        </g>
+        <path d="M250 100 H300" stroke="#22d3ee" stroke-width="1.6" opacity=".7"/>
+        <path d="M480 100 H530" stroke="#34d399" stroke-width="1.6" opacity=".7"/>
+      </svg>
+    </div>
+    <p class="eyebrow">Complexity Eater</p>
+    <h1>Different minds.<br>Shared work.</h1>
+    <p class="lede">Each person keeps their own agent. Complexity Eater is the room around one markdown file. A change lands only after someone who can approve says so.</p>
+    <div class="chips">
+      <span class="chip cy">One file</span>
+      <span class="chip gr">Their agent, not yours</span>
+      <span class="chip am">Approval stays human</span>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-title="The gap">
+  <div class="wrap">
+    <div class="split">
+      <div>
+        <p class="eyebrow">The gap</p>
+        <h2>The document is not the work</h2>
+        <p class="lede">Morgan’s agent writes a long proposal in Morgan’s voice. Jordan is on call and has twenty minutes. Pasting the essay into chat does not make it Jordan’s work.</p>
+        <ul class="points">
+          <li><b>Two memories.</b> Neither agent can see the other’s notes, tools, or preferences.</li>
+          <li><b>One artifact.</b> The proposal is markdown. It should stay markdown.</li>
+          <li><b>The missing job.</b> Someone has to translate strategy into an owner, a date, and a question.</li>
+        </ul>
+      </div>
+      <div class="art">
+        <svg viewBox="0 0 520 360" role="img" aria-label="A long proposal on the left and a short task list on the right, with a gap between them">
+          <rect x="24" y="30" width="190" height="280" rx="14" fill="#151820" stroke="#252a38"/>
+          <text x="40" y="58" font-size="12" font-weight="700" fill="#8b96ad" letter-spacing="1.2">MORGAN’S AGENT</text>
+          <rect x="40" y="76" width="140" height="8" rx="3" fill="#38bdf8" opacity=".8"/>
+          <rect x="40" y="96" width="150" height="6" rx="3" fill="#2b3244"/>
+          <rect x="40" y="112" width="130" height="6" rx="3" fill="#2b3244"/>
+          <rect x="40" y="128" width="150" height="6" rx="3" fill="#2b3244"/>
+          <rect x="40" y="144" width="110" height="6" rx="3" fill="#2b3244"/>
+          <rect x="40" y="168" width="150" height="6" rx="3" fill="#2b3244"/>
+          <rect x="40" y="184" width="120" height="6" rx="3" fill="#2b3244"/>
+          <rect x="40" y="200" width="150" height="6" rx="3" fill="#2b3244"/>
+          <rect x="40" y="216" width="90" height="6" rx="3" fill="#2b3244"/>
+          <rect x="306" y="70" width="190" height="200" rx="14" fill="#151820" stroke="#1c4d3d"/>
+          <text x="322" y="98" font-size="12" font-weight="700" fill="#a7f3d0" letter-spacing="1.2">JORDAN NEEDS</text>
+          <rect x="322" y="118" width="14" height="14" rx="3" fill="none" stroke="#34d399"/>
+          <text x="346" y="130" font-size="13" fill="#e2e8f0">Owner</text>
+          <rect x="322" y="148" width="14" height="14" rx="3" fill="none" stroke="#34d399"/>
+          <text x="346" y="160" font-size="13" fill="#e2e8f0">Date</text>
+          <rect x="322" y="178" width="14" height="14" rx="3" fill="none" stroke="#fbbf24"/>
+          <text x="346" y="190" font-size="13" fill="#e2e8f0">What can wait</text>
+          <rect x="322" y="208" width="14" height="14" rx="3" fill="none" stroke="#38bdf8"/>
+          <text x="346" y="220" font-size="13" fill="#e2e8f0">One question back</text>
+          <path d="M220 170 H290" stroke="#fb7185" stroke-width="2" stroke-dasharray="5 5"/>
+          <text x="248" y="158" text-anchor="middle" font-size="11" fill="#fb7185" font-weight="700">GAP</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-title="The room">
+  <div class="wrap">
+    <div class="split">
+      <div>
+        <p class="eyebrow">The room</p>
+        <h2>The file stays the artifact</h2>
+        <p class="lede">One binary, <strong>ce</strong>, serves a room around a markdown file on the host’s machine. Collaboration metadata sits beside it. The website does not create the room.</p>
+        <ul class="points green">
+          <li><b>Human page.</b> Loopback only. The owner cookie can approve.</li>
+          <li><b>Session ingress.</b> Agents present a bearer after they join. <code>POST /mcp</code> lives there.</li>
+          <li><b>One writer.</b> Proposals replace a region. A whole-file overwrite is explicit.</li>
+          <li><b>An external edit wins.</b> The markdown file on disk is still the source of truth.</li>
+        </ul>
+      </div>
+      <div class="art">
+        <svg viewBox="0 0 520 340" role="img" aria-label="The ce process between a markdown file and two listeners">
+          <rect x="170" y="120" width="180" height="90" rx="16" fill="#0f172a" stroke="#22d3ee" stroke-width="2"/>
+          <text x="260" y="158" text-anchor="middle" font-size="22" font-weight="800" fill="#f2f6fc">ce</text>
+          <text x="260" y="182" text-anchor="middle" font-size="12" fill="#8b96ad">one process</text>
+          <rect x="30" y="36" width="150" height="70" rx="12" fill="#151820" stroke="#252a38"/>
+          <text x="105" y="66" text-anchor="middle" font-size="13" font-weight="700" fill="#e2e8f0">notes.md</text>
+          <text x="105" y="86" text-anchor="middle" font-size="11" fill="#8b96ad">the artifact</text>
+          <rect x="340" y="28" width="150" height="64" rx="12" fill="#151820" stroke="#38bdf8"/>
+          <text x="415" y="54" text-anchor="middle" font-size="13" font-weight="700" fill="#9fd8ef">Owner</text>
+          <text x="415" y="74" text-anchor="middle" font-size="11" fill="#8b96ad">loopback</text>
+          <rect x="340" y="230" width="150" height="64" rx="12" fill="#151820" stroke="#6366f1"/>
+          <text x="415" y="256" text-anchor="middle" font-size="13" font-weight="700" fill="#c3c4fb">Agents</text>
+          <text x="415" y="276" text-anchor="middle" font-size="11" fill="#8b96ad">bearer + MCP</text>
+          <path d="M180 90 H200 V150" fill="none" stroke="#8b96ad" stroke-width="1.6"/>
+          <path d="M350 150 H350 340" fill="none" stroke="#38bdf8" stroke-width="1.6"/>
+          <path d="M350 180 V262 H340" fill="none" stroke="#6366f1" stroke-width="1.6"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-title="One URL">
+  <div class="wrap center">
+    <p class="eyebrow indigo">Before a room exists</p>
+    <h1>Point the agent here.</h1>
+    <p class="url">complexityeater.com/agent</p>
+    <p class="lede" style="margin-top:22px;">That address is markdown. It tells the agent how to install <strong>ce</strong>, when Tailcat is optional, and which skills to save. Fetching it does not install anything, and it does not open a room.</p>
+    <div class="cards" style="max-width:980px;margin-left:auto;margin-right:auto;">
+      <div class="card">
+        <h3><span class="dot cy"></span>commonroom</h3>
+        <p>Join, lease a region, propose, and commit after approval.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot gr"></span>complexity-eater-adopt</h3>
+        <p>Open a room on the machine that has the file, then invite.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot am"></span>This document</h3>
+        <p>Saved as a skill so the next session can upgrade without a new link.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-title="Install">
+  <div class="wrap">
+    <p class="eyebrow">What the agent is allowed to install</p>
+    <h2>ce first. Tailcat only if someone is remote.</h2>
+    <div class="cards">
+      <div class="card">
+        <h3><span class="dot cy"></span>ce</h3>
+        <p>The published archive for macOS or Linux. Check <b>SHA256SUMS</b>. Install into <b>~/.local/bin</b>. No Windows binary. No Homebrew formula.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot am"></span>tailcat</h3>
+        <p>Optional. Ask first. Homebrew on macOS, or the official Tailcat install doc. If it is missing, <b>--tailcat</b> exits and does not open a public listener.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot gr"></span>Same machine</h3>
+        <p>Loopback needs no plugin. Give the other agent the invitation, not the owner URL.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot in"></span>Not proven remote</h3>
+        <p>A two-machine Tailcat session is implemented and is not in the automated suite. Do not call it certified.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-title="Approval">
+  <div class="wrap">
+    <div class="split">
+      <div>
+        <p class="eyebrow amber">The gate</p>
+        <h2>A default agent cannot approve</h2>
+        <ul class="points amber">
+          <li><b>Invite once.</b> <code>commonroom://join/…</code> expires and spends one use. A failed dial does not.</li>
+          <li><b>Default grant.</b> Read, observe, propose, checkout, commit.</li>
+          <li><b>Withheld.</b> Approve, invite, and admin stay with the host session.</li>
+          <li><b>Commit needs a proposal.</b> The host accepts it. Then the agent commits that id.</li>
+        </ul>
+      </div>
+      <div class="art">
+        <svg viewBox="0 0 480 320" role="img" aria-label="A proposal stopped at an approval gate held by the host">
+          <rect x="36" y="110" width="140" height="78" rx="12" fill="#151820" stroke="#6366f1"/>
+          <text x="106" y="144" text-anchor="middle" font-size="14" font-weight="700" fill="#c3c4fb">Proposal</text>
+          <text x="106" y="166" text-anchor="middle" font-size="12" fill="#8b96ad">one region</text>
+          <rect x="250" y="96" width="120" height="106" rx="14" fill="#0f172a" stroke="#fbbf24" stroke-width="2"/>
+          <text x="310" y="146" text-anchor="middle" font-size="14" font-weight="800" fill="#fde68a">Approve</text>
+          <text x="310" y="168" text-anchor="middle" font-size="12" fill="#8b96ad">host only</text>
+          <path d="M176 149 H250" stroke="#fbbf24" stroke-width="2"/>
+          <rect x="250" y="250" width="190" height="44" rx="10" fill="#10241c" stroke="#1c4d3d"/>
+          <text x="345" y="277" text-anchor="middle" font-size="13" fill="#a7f3d0">Then commit the proposal id</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-title="Cloudflare">
+  <div class="wrap">
+    <p class="eyebrow">Cloudflare</p>
+    <h2>Pages is the front door. The room stays local.</h2>
+    <div class="cards">
+      <div class="card">
+        <h3><span class="dot cy"></span>What is deployed</h3>
+        <p>Project <b>complexity-eater</b>. Production branch <b>main</b>. Custom domain <b>complexityeater.com</b>.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot am"></span>What a push does</h3>
+        <p>GitHub Actions deploys only when <b>CLOUDFLARE_API_TOKEN</b> and <b>CLOUDFLARE_ACCOUNT_ID</b> are set. A skip leaves the old site up.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot gr"></span>Publish from this machine</h3>
+        <p><b>task website:build</b>, then <b>wrangler pages deploy</b> of <b>website/dist</b> to that project, branch main.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot in"></span>Not the product</h3>
+        <p>Opening the site does not provision a room. Workers and Artifacts are not this deployment.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-title="Record">
+  <div class="wrap center">
+    <p class="eyebrow green">Five to seven minutes</p>
+    <h1>Deck, then one live beat.</h1>
+    <div class="cards" style="max-width:1000px;margin-left:auto;margin-right:auto;text-align:left;">
+      <div class="card">
+        <h3><span class="dot cy"></span>1. This file, fullscreen</h3>
+        <p>Press <b>f</b>. QuickTime → New Screen Recording. Talk the slides. About half a minute each.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot gr"></span>2. The procedure</h3>
+        <p><b>task website:preview</b>, then open <b>/agent</b>. Show markdown. Say it did not create a room.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot am"></span>3. A real room</h3>
+        <p><b>ce examples/local-room.md --name Morgan</b>. Show Human and Invite. Cut before the invitation is readable in the export.</p>
+      </div>
+      <div class="card">
+        <h3><span class="dot in"></span>4. Export</h3>
+        <p>Deck first, terminal second. 1080p. No tokens. No live invitation you still mean to use.</p>
+      </div>
+    </div>
+    <p class="lede" style="margin-top:22px;color:#8b96ad;font-size:15px;">complexityeater.com/agent · the room is ce · approval stays with the host</p>
+  </div>
+</section>
+
+</main>
+<div class="kbdhint"><kbd>&#8592;</kbd> <kbd>&#8594;</kbd> navigate &nbsp;&middot;&nbsp; <kbd>space</kbd> next &nbsp;&middot;&nbsp; <kbd>f</kbd> fullscreen</div>
+<footer id="deckbar">
+  <span class="foot-brand">Complexity Eater</span>
+  <div class="nav">
+    <button class="navbtn" id="prev" type="button">&#8592; Prev</button>
+    <span class="counter" id="counter" aria-live="polite"><b>1</b> / 8</span>
+    <button class="navbtn" id="next" type="button">Next &#8594;</button>
+  </div>
+</footer>
+<script>
+(function () {
+  "use strict";
+  var slides = Array.prototype.slice.call(document.querySelectorAll("section.slide"));
+  var total = slides.length;
+  var idx = 0;
+  var bar = document.getElementById("progress-bar");
+  var counter = document.getElementById("counter");
+  var prevBtn = document.getElementById("prev");
+  var nextBtn = document.getElementById("next");
+  function render() {
+    for (var i = 0; i < total; i++) {
+      var on = i === idx;
+      slides[i].classList.toggle("active", on);
+      slides[i].setAttribute("aria-hidden", on ? "false" : "true");
+    }
+    counter.innerHTML = "<b>" + (idx + 1) + "</b> / " + total;
+    bar.style.width = (total <= 1 ? 100 : (idx / (total - 1)) * 100) + "%";
+    prevBtn.disabled = idx === 0;
+    nextBtn.disabled = idx === total - 1;
+    try { history.replaceState(null, "", "#" + (idx + 1)); } catch (e) {}
+  }
+  function go(n) {
+    if (n < 0) n = 0;
+    if (n > total - 1) n = total - 1;
+    if (n === idx) return;
+    idx = n;
+    render();
+  }
+  prevBtn.addEventListener("click", function () { go(idx - 1); });
+  nextBtn.addEventListener("click", function () { go(idx + 1); });
+  document.addEventListener("keydown", function (e) {
+    var k = e.key;
+    if (k === "ArrowRight" || k === "PageDown" || k === "n" || k === " " || k === "Spacebar") { go(idx + 1); e.preventDefault(); }
+    else if (k === "ArrowLeft" || k === "PageUp" || k === "p") { go(idx - 1); e.preventDefault(); }
+    else if (k === "Home") { go(0); e.preventDefault(); }
+    else if (k === "End") { go(total - 1); e.preventDefault(); }
+    else if (k === "f" || k === "F") {
+      e.preventDefault();
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+  });
+  var hash = parseInt((location.hash || "").replace("#", ""), 10);
+  if (!isNaN(hash) && hash >= 1 && hash <= total) idx = hash - 1;
+  render();
+})();
+</script>
+</body>
+</html>
