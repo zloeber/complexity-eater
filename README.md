@@ -112,6 +112,10 @@ task release  # cargo build --release
 
 These tasks use the Rust toolchain only.
 
+## Personal handoff demo
+
+A separate Cloudflare Worker walks through the manager-to-employee handoff: paste markdown, invite one person, read a simulated recipient interpretation, and send a reply back. The original stays sealed. The live page is https://complexity-eater-handoff.zloeber.workers.dev. Setup, the five-minute script, and the Artifacts limit are in [demo/handoff/README.md](demo/handoff/README.md). This demo does not provision a room.
+
 ## Public site
 
 The public website source is `website/`. Its canonical host is `https://complexityeater.com`. The site is static. Opening it does not provision a room. The domain is already in Cloudflare and starts resolving when the Pages custom domain is attached. Deployment is in [docs/operations/website.md](docs/operations/website.md). The documentation site published from `docs/` stays separate.

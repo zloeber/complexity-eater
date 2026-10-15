@@ -10,6 +10,8 @@ Run a remote instance of the existing `ce` binary, one room process per isolated
 
 A shared supervisor is the second step, after one remote process has been operated on purpose. A Cloudflare Workers and Durable Objects implementation of the room is a second protocol stack. It is not the first host.
 
+The personal handoff demo is that kind of adjacent service, and it is not a room. One Worker coordinates a manager-to-employee markdown handoff. The engine still owns room approval. See [Personal handoff](personal-handoff.md).
+
 ## Comparison
 
 | Option | Idle cost | Concurrent rooms | Storage | Sockets | Cleanup | Portability |

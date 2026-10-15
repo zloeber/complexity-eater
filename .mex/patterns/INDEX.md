@@ -9,4 +9,5 @@
 | [supply-chain](./supply-chain.md) | Changing the toolchain pin, dependency policy, container profile, scanners, SBOMs, or release attestations. |
 | [workspace-events](./workspace-events.md) | Watching live room changes through SSE or MCP subscriptions, handling resyncs, and debugging notification fanout. |
 | [handoff-tasks](./handoff-tasks.md) | Creating a handoff, polling or subscribing to its task, and recovering the result after a disconnect or restart. |
+| [personal-handoff-demo](./personal-handoff-demo.md) | Changing the manager-to-employee markdown handoff Worker, its mock profiles, or its Artifacts path. |
 | [public-website](./public-website.md) | Changing the static public site, its Cloudflare deploy, or the room-launch contract. |

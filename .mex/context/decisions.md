@@ -10,7 +10,7 @@ edges:
     condition: when verifying operational assumptions and supported environments
   - target: ../patterns/handoff-tasks.md
     condition: when the handoff and task split needs the operational steps
-last_updated: 2026-10-14
+last_updated: 2026-10-15
 ---
 
 # Architectural Decisions
@@ -68,6 +68,11 @@ last_updated: 2026-10-14
 ## 2026-10-14 — The public agent entry is a markdown procedure, not a room
 - Rationale: A person needs one URL they can hand an agent before any room exists. The agent has to install `ce`, decide whether `tailcat` is required, and save the skills it will use later. Doing that inside the engine would make the website a control plane.
 - Impact: `skills/commonroom/AGENT.md` is the template. The site build fills the current release URLs and publishes the result at `https://complexityeater.com/agent`. Fetching it does not create a room. `tailcat` stays optional and requires the person's agreement. `complexityeater.org` is not a second site.
+- Status: Active
+
+## 2026-10-15 — The personal handoff demo is a Worker beside the room
+- Rationale: Two browsers on separate machines need a public coordinator. Reimplementing `WorkspaceEngine` on Workers would be a second protocol stack. Artifacts is the document history that fits the handoff, and this account cannot enable it yet.
+- Impact: `demo/handoff` is one Worker and one Durable Object. Sessions and the sealed original live there. The Artifacts git path stays in the Worker and runs when the binding deploys. `ce-core`, `ce-http`, and `ce-protocol` do not name Cloudflare. Room approval stays in the engine. The page reports Durable Object storage while Artifacts is unavailable.
 - Status: Active
 
 ## 2026-10-14 — Release provenance is the version tag
