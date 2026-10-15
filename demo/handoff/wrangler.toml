@@ -1,0 +1,27 @@
+name = "complexity-eater-handoff"
+main = "src/index.ts"
+compatibility_date = "2026-10-14"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[assets]
+directory = "public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = true
+
+# Artifacts binding. Deploying it on this account failed with API 10403:
+# "In order to use Artifacts, you must switch to a paid plan."
+# The REST API also returned 10004 Access denied. Uncomment after the
+# account can use Artifacts. The Worker then stores each handoff as a repo.
+# [[artifacts]]
+# binding = "ARTIFACTS"
+# namespace = "complexity-eater"
+
+[[durable_objects.bindings]]
+name = "COORDINATOR"
+class_name = "HandoffCoordinator"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["HandoffCoordinator"]

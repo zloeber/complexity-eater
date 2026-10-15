@@ -4,11 +4,13 @@ description: Languages, frameworks, and runtime tools used in the project.
 edges:
   - target: architecture.md
     condition: when checking architecture or subsystem boundaries
+  - target: ../patterns/personal-handoff-demo.md
+    condition: when changing the handoff Worker or its Artifacts binding
   - target: setup.md
     condition: when confirming build, test, or local run steps
   - target: decisions.md
     condition: when tracing why the current runtime choices matter
-last_updated: 2026-10-14
+last_updated: 2026-10-15
 ---
 
 # Stack
@@ -32,6 +34,9 @@ last_updated: 2026-10-14
 - The project uses `cargo fmt`, `cargo clippy -- -D warnings`, `cargo test --workspace --locked`, `cargo audit`, and `cargo deny` as the standard validation path.
 - GitHub Actions handles CI, release automation, image publication, and docs via Jekyll from `docs/`.
 - The production container runtime is `gcr.io/distroless/static-debian12:nonroot` plus the Debian 12 libraries `ce` loads. The builder is `rust:1.99-bookworm`. The image does not include OpenSSL.
+
+## Personal handoff demo
+- `demo/handoff` is a Node and TypeScript Cloudflare Worker. It uses a Durable Object with SQLite, static assets, and `isomorphic-git` for the Artifacts path. It is not a Cargo workspace member. `npm test` in that directory runs the handoff unit tests. `npx wrangler deploy` publishes the workers.dev page.
 
 ## External runtime boundary
 - Optional `tailcat` transport is supported conditionally, but it is not part of the required runtime path. The public agent entry documents the official install methods and tells the agent to ask before installing it.

@@ -11,3 +11,5 @@ image-digest.txt
 /dist
 /website/dist
 .wrangler
+node_modules
+demo/handoff/.dev.vars

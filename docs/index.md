@@ -40,3 +40,4 @@ The [system diagram](architecture/diagram.md) shows the room process, the two li
 * [Roadmap](roadmap.md)
 * [Public website](operations/website.md)
 * [Hosted rooms](architecture/hosted-rooms.md)
+* [Personal handoff](architecture/personal-handoff.md)

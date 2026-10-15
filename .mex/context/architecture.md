@@ -10,13 +10,15 @@ edges:
     condition: when validating project structure or review expectations
   - target: ../patterns/handoff-tasks.md
     condition: when changing handoffs, MCP tasks, or listen subscriptions
+  - target: ../patterns/personal-handoff-demo.md
+    condition: when changing the manager-to-employee handoff demo, its Worker, or its Artifacts path
   - target: ../patterns/public-website.md
     condition: when changing the public website, the agent entry, or the room-launch contract
   - target: ../patterns/proposal-lifecycle.md
     condition: when changing how a proposal replaces a region or rebases
   - target: ../patterns/room-mode.md
     condition: when changing review or baton mode, or the owner session gate
-last_updated: 2026-10-14
+last_updated: 2026-10-15
 ---
 
 # Architecture
@@ -44,6 +46,7 @@ last_updated: 2026-10-14
 - The session ingress is separate and accepts bearer tokens; `POST /mcp` is mounted only there.
 - Invitations are encoded with the `commonroom://join/` scheme and may point to loopback or a discovered transport.
 - A transport plugin is optional; a missing plugin surfaces as `transport_unavailable` rather than a public listener.
+- `demo/handoff` is one Cloudflare Worker and one Durable Object for a pasted markdown handoff between two demo profiles. It checks sessions itself and stores the sealed original plus later revisions. It does not write the room markdown file. Artifacts commits are used only when that binding is deployed.
 - The public website in `website/` is static and separate. It prepares local `ce` commands from room-launch contract version 1, publishes the commonroom skill and the `workspace_onboarding` prompt from `skills/commonroom/`, and does not upload a workspace or provision a hosted room. `https://complexityeater.com/agent` is the markdown procedure an agent follows to install `ce`, optionally install `tailcat`, and save the skills it uses to open or join a room.
 
 ## Important invariants
