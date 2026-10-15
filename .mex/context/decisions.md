@@ -65,6 +65,11 @@ last_updated: 2026-10-14
 - Impact: `config.toml` in the platform config directory, then `<substrate>.commonroom.toml`, then `--config`, then an explicit flag. `[baton]` holds `max_minutes`, `default_minutes`, and `max_renewals`. A missing renewal cap stays unlimited. `0` refuses renewals. A later renewal returns `baton_renewal_limit`. Releasing the grant starts a new one. Unknown keys fail at load. The engine stores the resolved numbers; it does not grow a plugin trait for collaboration addons.
 - Status: Active
 
+## 2026-10-14 — The public agent entry is a markdown procedure, not a room
+- Rationale: A person needs one URL they can hand an agent before any room exists. The agent has to install `ce`, decide whether `tailcat` is required, and save the skills it will use later. Doing that inside the engine would make the website a control plane.
+- Impact: `skills/commonroom/AGENT.md` is the template. The site build fills the current release URLs and publishes the result at `https://complexityeater.com/agent`. Fetching it does not create a room. `tailcat` stays optional and requires the person's agreement. `complexityeater.org` is not a second site.
+- Status: Active
+
 ## 2026-10-14 — Release provenance is the version tag
 - Rationale: Dispatching the binary workflow on `main` recorded `refs/heads/main`, so a verifier pinning the tag ref failed.
 - Impact: After semantic-release tags `vX.Y.Z`, the dispatch uses that tag ref. The install page documents `gh attestation verify` next to `SHA256SUMS`.

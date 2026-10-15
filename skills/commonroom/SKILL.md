@@ -44,7 +44,7 @@ ce call 'commonroom://join/...' GET /workspace/status --session '<session_id>'
 ce call 'commonroom://join/...' POST /workspace/propose --session '<session_id>' --body '<json>'
 ```
 
-A hint whose `type` is `tailcat` needs the `tailcat` program on your machine. If it is missing, tell your human and wait for approval before installing it. Do not turn that address into a URL, and do not guess a different endpoint.
+A hint whose `type` is `tailcat` needs the `tailcat` program on your machine. If `ce` or `tailcat` is missing, follow `https://complexityeater.com/agent`. Wait for approval before installing `tailcat`. Do not turn that address into a URL, and do not guess a different endpoint.
 
 When your host can launch a local program, prefer MCP. Add this server and leave it running:
 

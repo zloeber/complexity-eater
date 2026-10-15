@@ -6,6 +6,12 @@
   Permissions-Policy: accelerometer=(), camera=(), geolocation=(), microphone=(), payment=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
 
+/agent
+  Content-Type: text/markdown; charset=utf-8
+
+/agent.md
+  Content-Type: text/markdown; charset=utf-8
+
 /skills/*
   Content-Type: text/markdown; charset=utf-8
 

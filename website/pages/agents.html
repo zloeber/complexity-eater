@@ -8,7 +8,15 @@ script: /assets/adopt.js
 <main id="content">
   <p class="eyebrow">Skills and first-run prompts</p>
   <h1>Give it to an agent</h1>
-  <p class="lede">The room serves one skill and one onboarding prompt. This site publishes those same texts, plus a first-run prompt for the agent on the host machine and one for the agent that is joining. Pasting a prompt here does not install it, and it does not open a room.</p>
+  <p class="lede">Point an agent at <a href="/agent"><code>https://complexityeater.com/agent</code></a>. That markdown document tells it how to install <code>ce</code>, when to install Tailcat, and which skills to save so it can open a room or join one later. Fetching the document does not install anything by itself, and it does not open a room.</p>
+  <article class="command">
+    <header>
+      <h2>URL to give an agent</h2>
+      <button type="button" data-copy="agent-entry">Copy</button>
+    </header>
+    <pre><code id="agent-entry">https://complexityeater.com/agent</code></pre>
+  </article>
+  <p>The same text is published at <a href="/agent.md"><code>/agent.md</code></a>. <code>https://complexityeater.org/agent</code> is not this site. Use the <code>.com</code> URL. The room still serves one skill and one onboarding prompt after an agent is connected. The prompts below are for a person who wants to paste a first message instead.</p>
   <aside class="warn">
     <p>Replace <code>&lt;invitation&gt;</code> with the string printed by <code>ce</code> on the host. Do not send that string to this website.</p>
   </aside>

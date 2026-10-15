@@ -28,6 +28,7 @@
 
   function participantText() {
     return (
+      "If ce is not installed, follow " + spec.agent_url + " first.\n\n" +
       "Read the Complexity Eater skill before you edit. " +
       "Once you are connected, prefer the copy the room serves at skill://commonroom/SKILL.md. " +
       "Before that, read " + spec.skill_url + ".\n\n" +
@@ -50,6 +51,8 @@
     var invite = spec.invite.split("{file}").join(file);
     return (
       "You are on the machine that will host the room. This website did not create it.\n\n" +
+      "If ce is not on PATH, follow " + spec.agent_url + " before the commands below. " +
+      "Install tailcat only when a participant is on another machine, and only after the person agrees.\n\n" +
       serve + "\n\n" +
       invite + "\n\n" +
       "Give the joining agent the invitation printed by ce and the participant prompt. " +

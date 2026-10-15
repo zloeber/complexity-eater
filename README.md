@@ -92,6 +92,8 @@ args: ["mcp", "--invite", "commonroom://join/..."]
 
 The skill document is `skills/commonroom/SKILL.md`. Agents load it as `skill://commonroom/SKILL.md`. The commands inside it are `ce`.
 
+Point an agent that does not have `ce` yet at `https://complexityeater.com/agent`. That document is the install procedure: the published `ce` archive, Tailcat only when another machine will join, and the skills it then uses to open a room or join one. `https://complexityeater.org/agent` is not this site. Fetching the page does not create a room.
+
 ## Permissions
 
 An invitation is not a grant to do everything, and a connected socket is not a session. HTTP identity comes from the bearer token or the owner cookie. Body fields do not choose the actor.

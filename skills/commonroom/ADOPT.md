@@ -11,7 +11,9 @@ The participation rules are a different document: the `commonroom` skill. Read t
 
 ## Install
 
-Use a published archive from the install page, or build `target/release/ce` with `task release`. The toolchain is pinned in `rust-toolchain.toml`. `ce --version` prints the package version.
+If `ce` is not on `PATH`, follow `https://complexityeater.com/agent` and finish its install steps before you open a room. That document selects the published archive, checks `SHA256SUMS`, and saves this skill. Install `tailcat` only when a participant is on another machine, and only after the person agrees. A missing `tailcat` with `--tailcat` exits `transport_unavailable` and does not open a public listener.
+
+Building from source is the fallback when the person asks for it. The toolchain is pinned in `rust-toolchain.toml`. `task release` writes `target/release/ce`. `ce --version` prints the package version.
 
 ## Open the room
 

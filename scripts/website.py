@@ -126,6 +126,7 @@ def agent_spec():
         "skill_path": "/skills/commonroom/SKILL.md",
         "adopt_path": "/skills/commonroom/ADOPT.md",
         "skill_url": CANONICAL + "/skills/commonroom/SKILL.md",
+        "agent_url": CANONICAL + "/agent",
         "onboarding_path": "/prompts/workspace-onboarding.txt",
         "onboarding": onboarding,
         "serve_loopback": local["transports"]["loopback"]["command"],
@@ -137,8 +138,73 @@ def agent_spec():
     }
 
 
+def render_agent(payload):
+    template = (ROOT / "skills" / "commonroom" / "AGENT.md").read_text()
+    archives = []
+    lines = []
+    for archive in payload["archives"]:
+        archives.append(
+            {
+                "id": archive["id"],
+                "os": archive["os"],
+                "cpu": archive["cpu"],
+                "file": archive["file"],
+                "url": archive["url"],
+            }
+        )
+        lines.append(
+            f"- `{archive['id']}`: {archive['os']}, {archive['cpu']}. "
+            f"File `{archive['file']}`. URL {archive['url']}"
+        )
+    manifest = {
+        "canonical": CANONICAL + "/agent",
+        "provisions_room": False,
+        "transmits_workspace": False,
+        "release": {
+            "tag": payload["tag"],
+            "version": payload["version"],
+            "page": payload["release_page"],
+            "checksums": payload["checksums"],
+            "unpublished": payload.get("unpublished", []),
+            "archives": archives,
+        },
+        "tailcat": {
+            "optional": True,
+            "requires_approval": True,
+            "install_doc": "https://github.com/tailscale/tailcat/blob/main/INSTALL.md",
+            "missing_plugin": "transport_unavailable",
+        },
+        "skills": [
+            {
+                "name": "commonroom",
+                "url": CANONICAL + "/skills/commonroom/SKILL.md",
+                "use": "join a room, propose, and commit after approval",
+            },
+            {
+                "name": "complexity-eater-adopt",
+                "url": CANONICAL + "/skills/commonroom/ADOPT.md",
+                "use": "open a room and invite another agent",
+            },
+            {
+                "name": "complexity-eater-agent",
+                "url": CANONICAL + "/agent",
+                "use": "install ce, optionally install tailcat, and save these skills",
+            },
+        ],
+    }
+    text = template.replace("{{agent_manifest}}", json.dumps(manifest, indent=2))
+    text = text.replace("{{archive_list}}", "\n".join(lines))
+    text = text.replace("{{release.tag}}", payload["tag"])
+    text = text.replace("{{release.checksums}}", payload["checksums"])
+    text = text.replace("{{release.page}}", payload["release_page"])
+    if "{{" in text or "}}" in text:
+        fail("agent entry still contains a template token")
+    return text
+
+
 def render_participant(spec):
     return (
+        f"If ce is not installed, follow {spec['agent_url']} first.\n\n"
         "Read the Complexity Eater skill before you edit. "
         "Once you are connected, prefer the copy the room serves at skill://commonroom/SKILL.md. "
         f"Before that, read {spec['skill_url']}.\n\n"
@@ -160,6 +226,8 @@ def render_host(spec, file_name="notes.md", host_name="Ada", transport="loopback
     invite = spec["invite"].replace("{file}", file_name)
     return (
         "You are on the machine that will host the room. This website did not create it.\n\n"
+        f"If ce is not on PATH, follow {spec['agent_url']} before the commands below. "
+        "Install tailcat only when a participant is on another machine, and only after the person agrees.\n\n"
         f"{serve}\n\n"
         f"{invite}\n\n"
         "Give the joining agent the invitation printed by ce and the participant prompt. "
@@ -285,6 +353,12 @@ def build():
     onboarding_target = DIST / "prompts" / "workspace-onboarding.txt"
     onboarding_target.parent.mkdir(parents=True, exist_ok=True)
     onboarding_target.write_text(spec["onboarding"])
+    agent_entry = render_agent(payload)
+    (DIST / "agent").write_text(agent_entry)
+    (DIST / "agent.md").write_text(agent_entry)
+    agent_skill = DIST / "skills" / "commonroom" / "AGENT.md"
+    agent_skill.parent.mkdir(parents=True, exist_ok=True)
+    agent_skill.write_text(agent_entry)
     first_run = DIST / "agents" / "first-run.json"
     first_run.parent.mkdir(parents=True, exist_ok=True)
     published_spec = dict(spec)
@@ -300,6 +374,10 @@ def build():
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
         + "\n".join(locs)
         + "\n</urlset>\n"
+    )
+    sitemap = sitemap.replace(
+        "</urlset>\n",
+        f"  <url><loc>{esc(CANONICAL + '/agent')}</loc></url>\n</urlset>\n",
     )
     (DIST / "sitemap.xml").write_text(sitemap)
     return pages
@@ -519,6 +597,43 @@ def check(online):
         fail("the published adoption skill drifted")
     if (DIST / "prompts" / "workspace-onboarding.txt").read_text() != spec["onboarding"]:
         fail("the published onboarding prompt drifted")
+    payload = release_manifest()
+    agent_entry = (DIST / "agent").read_text()
+    if (DIST / "agent.md").read_text() != agent_entry:
+        fail("/agent.md drifted from /agent")
+    if (DIST / "skills" / "commonroom" / "AGENT.md").read_text() != agent_entry:
+        fail("the published agent skill drifted from /agent")
+    if not agent_entry.startswith("---\nname: complexity-eater-agent\n"):
+        fail("the agent entry is missing its skill front matter")
+    if "{{" in agent_entry or "}}" in agent_entry:
+        fail("the published agent entry still has a template token")
+    for marker in FORBIDDEN:
+        if marker in agent_entry:
+            fail("the agent entry contains a forbidden marker")
+    for archive in payload["archives"]:
+        if archive["url"] not in agent_entry:
+            fail(f"agent entry is missing {archive['file']}")
+    for phrase in (
+        payload["checksums"],
+        "https://complexityeater.org/agent",
+        "Fetching it does not create a room",
+        "brew install tailcat",
+        "go install github.com/tailscale/tailcat/cmd/tailcat@latest",
+        "transport_unavailable",
+        "A Windows binary is not published",
+        "$HOME/.cursor/skills",
+        "skills-cursor",
+        "https://complexityeater.com/skills/commonroom/SKILL.md",
+        "https://complexityeater.com/skills/commonroom/ADOPT.md",
+        "commonroom://join/<invitation>",
+        '"provisions_room": false',
+    ):
+        if phrase not in agent_entry:
+            fail(f"agent entry is missing {phrase}")
+    if agent_entry.count("commonroom://join/") != agent_entry.count("commonroom://join/<invitation>"):
+        fail("the agent entry must not embed a live invitation")
+    if "spec.agent_url" not in (SRC / "assets" / "adopt.js").read_text():
+        fail("adopt.js must read the agent URL from the first-run spec")
     mcp_source = (ROOT / "crates" / "ce-http" / "src" / "mcp.rs").read_text()
     if 'include_str!("../../../skills/commonroom/onboarding.txt")' not in mcp_source:
         fail("the MCP onboarding prompt is not loaded from the published file")
@@ -530,6 +645,8 @@ def check(online):
     first_run = json.loads((DIST / "agents" / "first-run.json").read_text())
     if first_run["serve_loopback"] != spec["serve_loopback"] or first_run["paste_args"] != spec["paste_args"]:
         fail("the first-run spec does not match the room-launch contract")
+    if first_run.get("agent_url") != CANONICAL + "/agent":
+        fail("the first-run spec is missing the agent entry URL")
     index = (DIST / "index.html").read_text()
     if "Different minds. Shared work." not in index:
         fail("the tagline is missing from the home page")
@@ -539,7 +656,6 @@ def check(online):
     if 'name="invite"' in start or "type=\"file\"" in start:
         fail("the start page must not collect an invitation or a file upload")
     install = (DIST / "install.html").read_text()
-    payload = release_manifest()
     for archive in payload["archives"]:
         if archive["url"] not in install:
             fail(f"install page is missing {archive['file']}")
@@ -555,6 +671,8 @@ def check(online):
             leaf == "/" and f"{CANONICAL}/" in sitemap
         ):
             fail(f"sitemap is missing {leaf}")
+    if f"{CANONICAL}/agent" not in sitemap:
+        fail("sitemap is missing /agent")
     if online:
         for url in external_urls(DIST):
             fetch(url, 64)

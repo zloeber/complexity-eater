@@ -8,7 +8,7 @@ edges:
     condition: when confirming build, test, or local run steps
   - target: decisions.md
     condition: when tracing why the current runtime choices matter
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # Stack
@@ -34,5 +34,5 @@ last_updated: 2026-10-13
 - The production container runtime is `gcr.io/distroless/static-debian12:nonroot` plus the Debian 12 libraries `ce` loads. The builder is `rust:1.99-bookworm`. The image does not include OpenSSL.
 
 ## External runtime boundary
-- Optional `tailcat` transport is supported conditionally, but it is not part of the required runtime path.
-- The supported development environments are macOS and Linux; no Windows-specific runtime is required for the main checks.
+- Optional `tailcat` transport is supported conditionally, but it is not part of the required runtime path. The public agent entry documents the official install methods and tells the agent to ask before installing it.
+- The supported development environments are macOS and Linux; no Windows-specific runtime is required for the main checks. Published `ce` archives cover macOS and Linux. A Windows `ce` binary is not published.
