@@ -338,7 +338,12 @@ impl Transport for TailcatTransport {
         *self.output.lock().expect("output") = Vec::new();
         self.popen(&self.forward_command(address, local_port, remote_port))?;
         self.start_drain();
-        if !wait_until_accepts(local_port, self.timeout) {
+        let pid = self
+            .spawned_pid
+            .ok_or_else(|| transport_unavailable("transport process did not start"))?;
+        // The probe port is released before the plugin binds it. Another local
+        // listener can claim that port. Only a listen socket owned by this child counts.
+        if !wait_until_child_listens(local_port, pid, self.timeout) {
             let output = self.stop_and_collect();
             return Err(
                 transport_unavailable("transport forward did not open a local port")
@@ -473,20 +478,93 @@ fn ephemeral_port() -> Result<u16, CommonroomError> {
     Ok(port)
 }
 
-fn wait_until_accepts(port: u16, timeout: Duration) -> bool {
+fn wait_until_child_listens(port: u16, pid: u32, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if TcpStream::connect_timeout(
-            &format!("127.0.0.1:{port}").parse().expect("addr"),
-            Duration::from_millis(200),
-        )
-        .is_ok()
-        {
+        if process_listens_on(pid, port) {
             return true;
         }
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(20));
     }
     false
+}
+
+fn process_listens_on(pid: u32, port: u16) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        linux_process_listens_on(pid, port)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos_process_listens_on(pid, port)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (pid, port);
+        false
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_process_listens_on(pid: u32, port: u16) -> bool {
+    let inodes = listen_inodes(port);
+    if inodes.is_empty() {
+        return false;
+    }
+    let Ok(entries) = std::fs::read_dir(format!("/proc/{pid}/fd")) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let Ok(target) = std::fs::read_link(entry.path()) else {
+            continue;
+        };
+        let text = target.to_string_lossy();
+        let Some(rest) = text.strip_prefix("socket:[") else {
+            continue;
+        };
+        let inode = rest.trim_end_matches(']');
+        if inodes.iter().any(|item| item == inode) {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(target_os = "linux")]
+fn listen_inodes(port: u16) -> Vec<String> {
+    let mut inodes = Vec::new();
+    for path in ["/proc/net/tcp", "/proc/net/tcp6"] {
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        for line in text.lines().skip(1) {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            if fields.len() < 10 || fields[3] != "0A" {
+                continue;
+            }
+            let Some(local_port) = fields[1].rsplit(':').next() else {
+                continue;
+            };
+            if u16::from_str_radix(local_port, 16).ok() != Some(port) {
+                continue;
+            }
+            inodes.push(fields[9].to_string());
+        }
+    }
+    inodes
+}
+
+#[cfg(target_os = "macos")]
+fn macos_process_listens_on(pid: u32, port: u16) -> bool {
+    let pid_text = pid.to_string();
+    let port_text = format!("-iTCP:{port}");
+    Command::new("lsof")
+        .args(["-nP", "-a", "-p", &pid_text, &port_text, "-sTCP:LISTEN"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -514,6 +592,15 @@ mod tests {
             file.sync_all().unwrap();
         }
         path.display().to_string()
+    }
+
+    #[test]
+    fn a_foreign_listener_is_not_this_process() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(process_listens_on(std::process::id(), port));
+        assert!(!process_listens_on(u32::MAX - 1, port));
+        drop(listener);
     }
 
     #[test]
