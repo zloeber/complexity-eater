@@ -117,6 +117,14 @@ pub fn create_router_with(
         .route("/workspace/handoff/accept", post(handoff_accept))
         .route("/workspace/handoff/complete", post(handoff_complete))
         .route("/workspace/handoff/approve", post(handoff_approve))
+        .route("/workspace/review", get(review_context))
+        .route("/workspace/review/export", get(review_export))
+        .route("/workspace/review/questions", post(question_create))
+        .route("/workspace/review/questions/update", post(question_update))
+        .route("/workspace/review/answer", post(question_answer))
+        .route("/workspace/review/comment", post(review_comment))
+        .route("/workspace/review/question/status", post(question_status))
+        .route("/workspace/review/status", post(review_status))
         .route("/workspace/task/cancel", post(task_cancel))
         .route("/workspace/diagnostics", get(diagnostics))
         .route("/workspace/room", get(room))
@@ -672,6 +680,89 @@ async fn handoff_complete(
     )
 }
 
+#[derive(Deserialize, Default)]
+struct ReviewExportQuery {
+    format: Option<String>,
+}
+
+async fn review_context(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    state.engine.require(&session, "read")?;
+    json_ok(state.engine.review_context()?)
+}
+
+async fn review_export(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<ReviewExportQuery>,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    state.engine.require(&session, "read")?;
+    let format = query.format.as_deref().unwrap_or("json");
+    json_ok(state.engine.export_review(format)?)
+}
+
+async fn question_create(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    json_ok(state.engine.create_question(&session, &object(&body)?)?)
+}
+
+async fn question_update(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    json_ok(state.engine.update_question(&session, &object(&body)?)?)
+}
+
+async fn question_answer(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    json_ok(state.engine.answer_question(&session, &object(&body)?)?)
+}
+
+async fn review_comment(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    json_ok(state.engine.add_comment(&session, &object(&body)?)?)
+}
+
+async fn question_status(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    json_ok(
+        state
+            .engine
+            .set_question_status(&session, &object(&body)?)?,
+    )
+}
+
+async fn review_status(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    json_ok(state.engine.set_review_status(&session, &object(&body)?)?)
+}
+
 async fn handoff_approve(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -725,6 +816,12 @@ async fn room(
         "summary": state.engine.summary(20, 2048, None)?,
         "diagnostics": state.engine.connection_diagnostics()?,
         "commits": state.engine.recent_commits(8)?,
+        "review": state.engine.review_board()?,
+        "actor": {
+            "participant_id": &session.participant_id,
+            "kind": &session.kind,
+            "capabilities": &session.capabilities,
+        },
     });
     if has_capability(&session.capabilities, "invite") {
         payload["invites"] =

@@ -37,6 +37,7 @@ Errors are JSON `{error, message, details}` plus recovery fields at the top leve
 | `baton_expired` | 409 |
 | `baton_renewal_limit` | 409. `details.renewals` and `details.max_renewals` are the count on this grant and the cap. |
 | `mode_mismatch` | 409 |
+| `question_not_found` | 404 |
 
 A proposal's `target` is the region it edits. `change.content` replaces that region. `change.section` must name the same region. `change.mode` of `document`, or target `workspace`, replaces the whole file. A bare heading that matches more than one region is `invalid_region` with `details.candidates`. A commit rebases onto the current file when the proposal's region, its ancestors, and its descendants are unchanged. Overlap still returns `stale_version`.
 
@@ -65,7 +66,7 @@ Tool permission failures are HTTP 200 results with `isError: true`. They are not
 
 Discovery reports `cacheScope: public`, `supportedVersions: ["2026-07-28"]`, `resources.subscribe: true`, the skills extension, and `io.modelcontextprotocol/tasks`. It does not include invitation secrets, session ids, or transport addresses. It does not advertise list-changed notifications.
 
-`resources/subscribe` and `resources/unsubscribe` take a resource URI. The session needs `read`. Subscribable URIs are `commonroom://workspace/status`, `commonroom://workspace/document`, `commonroom://workspace/proposals`, `commonroom://workspace/leases`, and `commonroom://workspace/participants`. A change notifies with `notifications/resources/updated` and the URI. The client rereads the resource. The notification is a hint: clients disconnect, some clients never subscribe, and a missed hint is recovered by an ordinary read or tool call. A notification does not authorize the next operation, and a commit does not wait for one.
+`resources/subscribe` and `resources/unsubscribe` take a resource URI. The session needs `read`. Subscribable URIs are `commonroom://workspace/status`, `commonroom://workspace/document`, `commonroom://workspace/proposals`, `commonroom://workspace/leases`, `commonroom://workspace/participants`, and `commonroom://workspace/review`. A change notifies with `notifications/resources/updated` and the URI. The client rereads the resource. The notification is a hint: clients disconnect, some clients never subscribe, and a missed hint is recovered by an ordinary read or tool call. A notification does not authorize the next operation, and a commit does not wait for one.
 
 Workspace mutations do not emit `notifications/tools/list_changed`, `notifications/prompts/list_changed`, or `notifications/resources/list_changed`. Progress messages are not implemented. A proposal or a lease is still one request and one response.
 
@@ -73,6 +74,6 @@ Workspace mutations do not emit `notifications/tools/list_changed`, `notificatio
 
 ## Persistence
 
-The markdown file is the artifact. The sidecar `<file>.commonroom.db` holds participants, sessions, invitations, leases, proposals, events, and versions. The event table is a ring of the newest 2000 rows. It is the replay buffer for `workspace.observe`, not a bus you can tail from another host. Live subscribers live in the room process and are gone when the process exits.
+The markdown file is the artifact. The sidecar `<file>.commonroom.db` holds participants, sessions, invitations, leases, proposals, review questions, responses, comments, events, and versions. Review answers do not replace the file. See [Review canvas](../architecture/review.md). The event table is a ring of the newest 2000 rows. It is the replay buffer for `workspace.observe`, not a bus you can tail from another host. Live subscribers live in the room process and are gone when the process exits.
 
 Timestamps are RFC 3339 with a numeric offset (`+00:00`) and microsecond precision.

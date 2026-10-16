@@ -18,7 +18,8 @@ pub const PRODUCT_NAME: &str = "Complexity Eater";
 pub const CLI_NAME: &str = "ce";
 
 pub const CAPABILITIES: &[&str] = &[
-    "read", "observe", "propose", "checkout", "commit", "approve", "invite", "admin",
+    "read", "observe", "propose", "answer", "comment", "checkout", "commit", "approve", "invite",
+    "admin",
 ];
 
 pub const DEFAULT_AGENT_CAPABILITIES: &[&str] =
@@ -67,6 +68,7 @@ pub const ERROR_CODES: &[&str] = &[
     "baton_expired",
     "baton_renewal_limit",
     "mode_mismatch",
+    "question_not_found",
 ];
 
 #[derive(Clone, Debug)]
@@ -263,6 +265,46 @@ pub const OPERATIONS: &[Operation] = &[
         capability: "admin",
     },
     Operation {
+        name: "workspace.review_context",
+        http: "GET /workspace/review",
+        capability: "read",
+    },
+    Operation {
+        name: "workspace.review_export",
+        http: "GET /workspace/review/export",
+        capability: "read",
+    },
+    Operation {
+        name: "workspace.question_create",
+        http: "POST /workspace/review/questions",
+        capability: "propose",
+    },
+    Operation {
+        name: "workspace.question_update",
+        http: "POST /workspace/review/questions/update",
+        capability: "propose",
+    },
+    Operation {
+        name: "workspace.question_answer",
+        http: "POST /workspace/review/answer",
+        capability: "answer",
+    },
+    Operation {
+        name: "workspace.comment",
+        http: "POST /workspace/review/comment",
+        capability: "comment",
+    },
+    Operation {
+        name: "workspace.question_status",
+        http: "POST /workspace/review/question/status",
+        capability: "propose",
+    },
+    Operation {
+        name: "workspace.review_status",
+        http: "POST /workspace/review/status",
+        capability: "approve",
+    },
+    Operation {
         name: "session.join",
         http: "POST /session/join",
         capability: "invitation",
@@ -279,6 +321,9 @@ pub const WORKFLOW: &[&str] = &[
     "workspace.review",
     "workspace.commit",
     "workspace.release",
+    "workspace.question_create",
+    "workspace.question_answer",
+    "workspace.review_context",
 ];
 
 #[derive(Clone, Copy, Debug)]
@@ -446,6 +491,10 @@ pub fn baton_renewal_limit(message: impl Into<String>) -> CommonroomError {
 
 pub fn mode_mismatch(message: impl Into<String>) -> CommonroomError {
     CommonroomError::new("mode_mismatch", 409, message)
+}
+
+pub fn question_not_found(message: impl Into<String>) -> CommonroomError {
+    CommonroomError::new("question_not_found", 404, message)
 }
 
 pub fn internal_error(message: impl Into<String>) -> CommonroomError {

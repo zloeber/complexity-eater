@@ -17,6 +17,7 @@ Invitations use `commonroom://join/`. The protocol name is `commonroom`. The met
 * Invite a person or an agent with a one-use capability.
 * Join over loopback, or over Tailcat when that plugin is installed.
 * Read, lease a section, propose a change, and commit it after approval.
+* Ask a question anchored to a passage, answer it on the human page, and read that answer back through MCP. The answer does not change the file. See [Review canvas](docs/architecture/review.md).
 * Use the same operations from the human page, the `ce` command, or MCP.
 
 A hosted service and an organizational control plane are extension points. They are not required to run a room, and they are not implemented yet. See [docs/roadmap.md](docs/roadmap.md).
@@ -71,7 +72,7 @@ ce join 'commonroom://join/...' --name "Agent" --json --no-hold
 ce call 'commonroom://join/...' POST /workspace/propose --session ses_... --body '{"target":"section:Goals","base_version":1,"summary":"sharpen","change":{"section":"Goals","content":"## Goals\n\nship\n"}}'
 ```
 
-A default agent invitation grants `read`, `observe`, `propose`, `checkout`, and `commit`. It does not grant `approve`, `invite`, or `admin`. The host session created by `ce serve` can approve. An agent commits an approved `proposal_id`. A raw document overwrite over HTTP requires `admin`.
+A default agent invitation grants `read`, `observe`, `propose`, `checkout`, and `commit`. It does not grant `approve`, `invite`, or `admin`. The host session created by `ce serve` can approve. An agent commits an approved `proposal_id`. A raw document overwrite over HTTP requires `admin`. `propose` also covers review answers and comments. `answer` or `comment` can be granted on their own when a participant should respond without proposing a document change.
 
 Joining spends one use. A second join returns `invitation_redeemed`. A failed dial does not spend the invitation.
 

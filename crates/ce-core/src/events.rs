@@ -45,6 +45,12 @@ pub const BATON_RELEASED: &str = "baton.released";
 pub const BATON_EXPIRED: &str = "baton.expired";
 pub const BATON_REVOKED: &str = "baton.revoked";
 pub const ROOM_MODE_CHANGED: &str = "room.mode_changed";
+pub const QUESTION_CREATED: &str = "question.created";
+pub const QUESTION_UPDATED: &str = "question.updated";
+pub const QUESTION_ANSWERED: &str = "question.answered";
+pub const QUESTION_STATUS: &str = "question.status";
+pub const COMMENT_CREATED: &str = "comment.created";
+pub const REVIEW_STATUS: &str = "review.status";
 
 pub const KNOWN_EVENT_TYPES: &[&str] = &[
     WORKSPACE_CREATED,
@@ -80,6 +86,12 @@ pub const KNOWN_EVENT_TYPES: &[&str] = &[
     BATON_EXPIRED,
     BATON_REVOKED,
     ROOM_MODE_CHANGED,
+    QUESTION_CREATED,
+    QUESTION_UPDATED,
+    QUESTION_ANSWERED,
+    QUESTION_STATUS,
+    COMMENT_CREATED,
+    REVIEW_STATUS,
 ];
 
 const SECRET_KEYS: &[&str] = &[

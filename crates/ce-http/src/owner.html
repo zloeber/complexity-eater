@@ -13,85 +13,247 @@
     } catch (error) {}
   </script>
   <style>
-    :root { color-scheme: light; --ink: #1c1915; --muted: #5c564c; --line: #e4ddd2; --paper: #f7f4ee; --card: #fffdf9; --green: #0f6b4c; --red: #8f3d32; --button: #fff; --pre: #f3efe7; }
-    :root[data-theme="dark"] { color-scheme: dark; --ink: #f4efe6; --muted: #b7aea2; --line: #3f3830; --paper: #161410; --card: #221e19; --green: #8dcea8; --red: #e3a299; --button: #2c2722; --pre: #1b1814; }
+    :root {
+      color-scheme: light;
+      --ink: #1c1915;
+      --muted: #5e574e;
+      --line: #e4ddd2;
+      --paper: #f3efe7;
+      --card: #fffdf9;
+      --green: #0f6b4c;
+      --red: #8f3d32;
+      --button: #fff;
+      --pre: #f6f1e8;
+      --mark: #f3dd9a;
+      --accent: #1f4d3a;
+      --focus: #1f4d3a;
+      --agent: #31456e;
+      --proposed: #8a5a12;
+      --soft: #f7f3ec;
+    }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --ink: #f4efe6;
+      --muted: #b7aea2;
+      --line: #3f3830;
+      --paper: #141210;
+      --card: #221e19;
+      --green: #8dcea8;
+      --red: #e3a299;
+      --button: #2c2722;
+      --pre: #1b1814;
+      --mark: #6b5420;
+      --accent: #d7b56a;
+      --focus: #e7c98a;
+      --agent: #b7c7ea;
+      --proposed: #e2b56a;
+      --soft: #1b1814;
+    }
     @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]) { color-scheme: dark; --ink: #f4efe6; --muted: #b7aea2; --line: #3f3830; --paper: #161410; --card: #221e19; --green: #8dcea8; --red: #e3a299; --button: #2c2722; --pre: #1b1814; }
+      :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --ink: #f4efe6;
+        --muted: #b7aea2;
+        --line: #3f3830;
+        --paper: #141210;
+        --card: #221e19;
+        --green: #8dcea8;
+        --red: #e3a299;
+        --button: #2c2722;
+        --pre: #1b1814;
+        --mark: #6b5420;
+        --accent: #d7b56a;
+        --focus: #e7c98a;
+        --agent: #b7c7ea;
+        --proposed: #e2b56a;
+        --soft: #1b1814;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { scroll-behavior: auto !important; }
     }
     * { box-sizing: border-box; }
-    body { margin: 0; font: 16px/1.45 "Iowan Old Style", Palatino, Georgia, serif; color: var(--ink); background: var(--paper); }
-    main { max-width: 920px; margin: 0 auto; padding: 32px 20px 64px; }
-    .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-    h1 { font-size: 2rem; margin: 0; }
-    h2 { font-size: 1.05rem; margin: 0 0 10px; }
-    p { color: var(--muted); }
-    section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin: 14px 0; }
-    ul { list-style: none; padding: 0; margin: 0; }
-    li { padding: 8px 0; border-top: 1px solid var(--line); }
-    li:first-child { border-top: 0; }
-    button { font: inherit; color: var(--ink); border: 1px solid var(--line); background: var(--button); border-radius: 8px; padding: 6px 10px; margin-right: 6px; cursor: pointer; }
-    #theme { margin-right: 0; white-space: nowrap; flex: none; }
+    :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      color: var(--ink);
+      background: var(--paper);
+      font: 15px/1.45 "Segoe UI", system-ui, sans-serif;
+    }
+    header, .pane-tabs { padding: 12px 16px 0; }
+    header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+    h1 { font: 600 1.35rem/1.2 Georgia, serif; margin: 0; }
+    h2 { font-size: 0.95rem; margin: 0 0 8px; }
+    p { margin: 4px 0; }
+    button, input, textarea, select { font: inherit; color: var(--ink); }
+    button {
+      border: 1px solid var(--line);
+      background: var(--button);
+      border-radius: 8px;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
     button.approve { color: var(--green); }
     button.reject { color: var(--red); }
-    pre { white-space: pre-wrap; word-break: break-all; background: var(--pre); color: var(--ink); padding: 10px; border-radius: 8px; }
-    .meta { color: var(--muted); font-size: 0.92rem; }
-    #notice { min-height: 1.2em; }
+    button[aria-pressed="true"] { border-color: var(--accent); }
+    .meta, .status { color: var(--muted); }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .pane-tabs { display: none; gap: 8px; }
+    .canvas {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr);
+      grid-template-rows: minmax(0, 1.2fr) minmax(240px, 0.9fr);
+      gap: 12px;
+      padding: 12px 16px 16px;
+    }
+    .pane {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      min-height: 0;
+      overflow: auto;
+      padding: 14px 16px 18px;
+    }
+    #document-pane { grid-row: 1 / span 2; }
+    .document-body { font: 17px/1.6 "Iowan Old Style", Palatino, Georgia, serif; }
+    .document-body h1, .document-body h2, .document-body h3 { line-height: 1.25; }
+    .document-body pre, .document-body code { font: 0.86em/1.45 ui-monospace, monospace; }
+    .document-body pre { background: var(--pre); padding: 10px 12px; border-radius: 8px; overflow: auto; }
+    .document-body table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+    .document-body th, .document-body td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; }
+    .document-body blockquote { margin-left: 0; padding-left: 12px; border-left: 3px solid var(--line); color: var(--muted); }
+    .document-body a { color: var(--accent); }
+    mark.anchor { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2px; cursor: pointer; }
+    mark.anchor.active { outline: 2px solid var(--accent); }
+    .source { white-space: pre-wrap; word-break: break-word; background: var(--pre); padding: 12px; border-radius: 8px; }
+    .question, .proposal, .comment {
+      width: 100%;
+      text-align: left;
+      display: block;
+      margin: 0 0 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: var(--soft);
+    }
+    .question small, .proposal small { display: block; color: var(--muted); margin-top: 4px; }
+    .agent { color: var(--agent); }
+    .proposed { color: var(--proposed); }
+    .stale { color: var(--red); }
+    label { display: block; margin: 8px 0; }
+    textarea, input[type="text"], select { width: 100%; border: 1px solid var(--line); background: var(--button); border-radius: 8px; padding: 8px; }
+    textarea { min-height: 96px; resize: vertical; }
+    details { margin: 0 16px 16px; }
+    #notice, #save-state { min-height: 1.2em; }
+    @media (max-width: 900px) {
+      body { height: auto; min-height: 100vh; }
+      .pane-tabs { display: flex; }
+      .canvas { display: block; }
+      .pane { display: none; max-height: none; margin-bottom: 12px; }
+      body[data-pane="document"] #document-pane,
+      body[data-pane="questions"] #questions-pane,
+      body[data-pane="respond"] #response-pane { display: block; }
+    }
   </style>
 </head>
-<body>
-<main>
-  <header>
-    <div class="top">
-      <h1 id="workspace-name">Complexity Eater</h1>
-      <button id="theme" type="button">Dark mode</button>
+<body data-pane="document">
+<header>
+  <div>
+    <h1 id="workspace-name">Complexity Eater</h1>
+    <p class="meta">Version <strong id="version">Loading</strong> · <span id="lifecycle"></span> · <span id="updates">connecting</span></p>
+    <p id="progress" class="meta">Loading the review</p>
+    <p id="notice" class="meta" role="status"></p>
+  </div>
+  <div class="row">
+    <button id="theme" type="button">Dark mode</button>
+  </div>
+</header>
+<nav class="pane-tabs" aria-label="Review panes">
+  <button type="button" data-pane="document" aria-pressed="true">Document</button>
+  <button type="button" data-pane="questions" aria-pressed="false">Questions</button>
+  <button type="button" data-pane="respond" aria-pressed="false">Respond</button>
+</nav>
+<div class="canvas">
+  <section id="document-pane" class="pane" aria-label="Source document">
+    <div class="row">
+      <h2>Source</h2>
+      <button id="toggle-source" type="button">Show source</button>
     </div>
-    <p>Version <strong id="version">Loading</strong> · <span id="lifecycle"></span> · <span id="updates">connecting</span></p>
-    <p id="mode-banner" class="meta">Loading</p>
-    <p id="notice" class="meta"></p>
-  </header>
+    <p id="doc-note" class="meta"></p>
+    <article id="document" class="document-body"></article>
+  </section>
+  <section id="questions-pane" class="pane" aria-label="Questions and comments">
+    <div class="row">
+      <h2>Questions</h2>
+      <button id="complete-review" type="button" hidden>Complete review</button>
+      <button id="reopen-review" type="button" hidden>Reopen review</button>
+    </div>
+    <div class="row" role="group" aria-label="Question filters">
+      <button type="button" data-filter="unanswered" aria-pressed="true">Unanswered</button>
+      <button type="button" data-filter="comments" aria-pressed="false">Comments</button>
+      <button type="button" data-filter="done" aria-pressed="false">Done</button>
+      <button type="button" data-filter="all" aria-pressed="false">All</button>
+    </div>
+    <ul id="outline"></ul>
+    <div id="questions"></div>
+    <h2>Proposed changes</h2>
+    <p class="meta proposed">These stay separate from the source until someone approves and commits them.</p>
+    <div id="proposals"></div>
+    <details>
+      <summary>Ask a question</summary>
+      <form id="ask-form">
+        <label>Region <select id="ask-region"></select></label>
+        <label>Quote <input id="ask-quote" type="text" required /></label>
+        <label>Kind
+          <select id="ask-kind">
+            <option value="text">Free text</option>
+            <option value="single">Single choice</option>
+            <option value="multi">Multiple choice</option>
+            <option value="yes_no">Yes or no</option>
+            <option value="approve_reject">Approve or reject</option>
+          </select>
+        </label>
+        <label>Prompt <textarea id="ask-prompt" required></textarea></label>
+        <label>Options, one per line <textarea id="ask-options"></textarea></label>
+        <label><input id="ask-required" type="checkbox" checked /> Required</label>
+        <button type="submit">Create question</button>
+      </form>
+    </details>
+  </section>
+  <section id="response-pane" class="pane" aria-label="Response">
+    <h2>Response</h2>
+    <div id="response"></div>
+  </section>
+</div>
+<details>
+  <summary>Room</summary>
   <section>
-    <h2>Room mode</h2>
+    <p id="mode-banner" class="meta">Loading</p>
     <p class="meta">Review asks for approval. Baton lets the holder write directly until the grant expires.</p>
     <button id="mode-review" type="button">Use review</button>
     <button id="mode-baton" type="button">Use baton</button>
     <button id="revoke-baton" type="button">Revoke baton</button>
-  </section>
-  <section>
     <h2>Connection</h2>
     <p id="connection" class="meta">Loading</p>
-  </section>
-  <section>
     <h2>Participants</h2>
     <p class="meta">Members who have not left. This is not a live presence list.</p>
     <ul id="participants"></ul>
-  </section>
-  <section>
     <h2>Leases</h2>
     <ul id="leases"></ul>
-  </section>
-  <section>
-    <h2>Proposals</h2>
-    <div id="proposals"></div>
-  </section>
-  <section>
     <h2>Invitation</h2>
     <button id="create-invite" type="button">Create invitation</button>
     <pre id="invite-uri"></pre>
     <pre id="invite-paste"></pre>
-  </section>
-  <section>
-    <h2>Outline</h2>
-    <ul id="outline"></ul>
-  </section>
-  <section>
     <h2>Recent commits</h2>
     <div id="commits"></div>
-  </section>
-  <section>
     <h2>Recent events</h2>
     <ul id="events"></ul>
   </section>
-</main>
+</details>
 <script>
 const notice = document.getElementById("notice");
 const themeButton = document.getElementById("theme");
@@ -119,7 +281,12 @@ let source = null;
 let fallbackTimer = null;
 let failures = 0;
 let refreshTimer = null;
+let saveTimer = null;
 const refreshScopes = new Set();
+let roomState = null;
+let selectedId = null;
+let showSource = false;
+let filter = "unanswered";
 function text(id, value) { document.getElementById(id).textContent = value; }
 function empty(node, message) {
   node.replaceChildren();
@@ -142,6 +309,562 @@ function stopFallback() {
   if (!fallbackTimer) return;
   clearInterval(fallbackTimer);
   fallbackTimer = null;
+}
+function can(cap) {
+  const caps = (roomState && roomState.actor && roomState.actor.capabilities) || [];
+  return caps.indexOf("*") !== -1 || caps.indexOf("admin") !== -1 || caps.indexOf(cap) !== -1;
+}
+function canAnswer() { return can("answer") || can("propose"); }
+function canComment() { return can("comment") || can("propose"); }
+function questions() { return (roomState && roomState.review && roomState.review.questions) || []; }
+function filteredQuestions() {
+  return questions().filter((question) => {
+    if (filter === "unanswered") return question.status === "open" || question.status === "needs_clarification";
+    if (filter === "done") return question.status === "answered" || question.status === "resolved" || question.status === "rejected";
+    if (filter === "comments") return (question.comments || []).length > 0;
+    return true;
+  });
+}
+function selectQuestion(id, pane) {
+  selectedId = id;
+  renderQuestions();
+  renderResponse(true);
+  highlight();
+  const mark = document.querySelector('mark[data-question-id="' + CSS.escape(id) + '"]');
+  if (mark) mark.scrollIntoView({block: "center"});
+  if (pane && window.matchMedia("(max-width: 900px)").matches) showPane(pane);
+}
+function showPane(name) {
+  document.body.dataset.pane = name;
+  document.querySelectorAll(".pane-tabs button").forEach((button) => {
+    button.setAttribute("aria-pressed", button.dataset.pane === name ? "true" : "false");
+  });
+}
+document.querySelectorAll(".pane-tabs button").forEach((button) => {
+  button.addEventListener("click", () => showPane(button.dataset.pane));
+});
+document.querySelectorAll("[data-filter]").forEach((button) => {
+  button.addEventListener("click", () => {
+    filter = button.dataset.filter;
+    document.querySelectorAll("[data-filter]").forEach((item) => {
+      item.setAttribute("aria-pressed", item === button ? "true" : "false");
+    });
+    renderQuestions();
+  });
+});
+function renderDocument() {
+  const review = roomState.review || {};
+  const note = document.getElementById("doc-note");
+  const root = document.getElementById("document");
+  const bits = [];
+  if (review.status && review.status !== "open") bits.push("Review is " + review.status + ".");
+  if (review.document_truncated) bits.push("The preview is truncated. Questions still use the full file.");
+  const pending = (roomState.proposals || []).filter((item) => item.status === "pending" || item.status === "approved").length;
+  if (pending) bits.push(pending + " proposed change" + (pending === 1 ? "" : "s") + " waiting. The source is unchanged.");
+  note.textContent = bits.join(" ");
+  root.replaceChildren();
+  if (showSource) {
+    const pre = document.createElement("pre");
+    pre.className = "source";
+    pre.textContent = review.document || "";
+    root.append(pre);
+    return;
+  }
+  renderMarkdown(root, review.document || "");
+  highlight();
+}
+function headingPath(stack, level, title) {
+  while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
+  stack.push({level, title});
+  return stack.map((item) => item.title).join("/");
+}
+function appendInline(parent, value) {
+  const pattern = /(`[^`]+`)|\[([^\]\n]+)\]\(([^)\s]+)\)|\*\*([^*\n]+)\*\*|\*([^*\n]+)\*/g;
+  let last = 0;
+  let match;
+  while ((match = pattern.exec(value))) {
+    if (match.index > last) parent.append(document.createTextNode(value.slice(last, match.index)));
+    if (match[1]) {
+      const code = document.createElement("code");
+      code.textContent = match[1].slice(1, -1);
+      parent.append(code);
+    } else if (match[2]) {
+      if (/^(https?:|mailto:)/i.test(match[3])) {
+        const link = document.createElement("a");
+        link.href = match[3];
+        link.rel = "noreferrer noopener";
+        link.target = "_blank";
+        link.textContent = match[2];
+        parent.append(link);
+      } else parent.append(document.createTextNode(match[2]));
+    } else if (match[4]) {
+      const strong = document.createElement("strong");
+      strong.textContent = match[4];
+      parent.append(strong);
+    } else if (match[5]) {
+      const em = document.createElement("em");
+      em.textContent = match[5];
+      parent.append(em);
+    }
+    last = pattern.lastIndex;
+  }
+  if (last < value.length) parent.append(document.createTextNode(value.slice(last)));
+}
+function renderMarkdown(root, source) {
+  const lines = source.split("\n");
+  const stack = [];
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index];
+    if (line.startsWith("```")) {
+      const code = [];
+      index += 1;
+      while (index < lines.length && !lines[index].startsWith("```")) {
+        code.push(lines[index]);
+        index += 1;
+      }
+      const pre = document.createElement("pre");
+      const node = document.createElement("code");
+      node.textContent = code.join("\n");
+      pre.append(node);
+      root.append(pre);
+      index += 1;
+      continue;
+    }
+    const heading = /^(#{1,6}) (.+)$/.exec(line);
+    if (heading) {
+      const level = heading[1].length;
+      const node = document.createElement("h" + level);
+      const path = headingPath(stack, level, heading[2]);
+      node.dataset.region = path;
+      node.id = "region-" + path;
+      appendInline(node, heading[2]);
+      root.append(node);
+      index += 1;
+      continue;
+    }
+    if (line.includes("|") && index + 1 < lines.length && /^\s*\|?\s*:?-{3,}/.test(lines[index + 1])) {
+      const table = document.createElement("table");
+      const head = document.createElement("tr");
+      line.split("|").map((cell) => cell.trim()).filter((cell, cellIndex, all) => cell || (cellIndex > 0 && cellIndex < all.length - 1)).forEach((cell) => {
+        const th = document.createElement("th");
+        th.textContent = cell;
+        head.append(th);
+      });
+      const thead = document.createElement("thead");
+      thead.append(head);
+      table.append(thead);
+      const body = document.createElement("tbody");
+      index += 2;
+      while (index < lines.length && lines[index].includes("|")) {
+        const row = document.createElement("tr");
+        lines[index].split("|").map((cell) => cell.trim()).filter((cell, cellIndex, all) => cell || (cellIndex > 0 && cellIndex < all.length - 1)).forEach((cell) => {
+          const td = document.createElement("td");
+          td.textContent = cell;
+          row.append(td);
+        });
+        body.append(row);
+        index += 1;
+      }
+      table.append(body);
+      root.append(table);
+      continue;
+    }
+    if (/^[-*] /.test(line)) {
+      const list = document.createElement("ul");
+      while (index < lines.length && /^[-*] /.test(lines[index])) {
+        const item = document.createElement("li");
+        appendInline(item, lines[index].slice(2));
+        list.append(item);
+        index += 1;
+      }
+      root.append(list);
+      continue;
+    }
+    if (/^\d+\. /.test(line)) {
+      const list = document.createElement("ol");
+      while (index < lines.length && /^\d+\. /.test(lines[index])) {
+        const item = document.createElement("li");
+        appendInline(item, lines[index].replace(/^\d+\. /, ""));
+        list.append(item);
+        index += 1;
+      }
+      root.append(list);
+      continue;
+    }
+    if (line.startsWith("> ")) {
+      const quote = document.createElement("blockquote");
+      const chunk = [];
+      while (index < lines.length && lines[index].startsWith("> ")) {
+        chunk.push(lines[index].slice(2));
+        index += 1;
+      }
+      appendInline(quote, chunk.join(" "));
+      root.append(quote);
+      continue;
+    }
+    if (!line.trim()) { index += 1; continue; }
+    const paragraph = document.createElement("p");
+    appendInline(paragraph, line);
+    root.append(paragraph);
+    index += 1;
+  }
+}
+function highlight() {
+  document.querySelectorAll("mark.anchor").forEach((mark) => {
+    const text = mark.textContent;
+    mark.replaceWith(document.createTextNode(text));
+  });
+  const root = document.getElementById("document");
+  questions().forEach((question) => {
+    const quote = question.anchor && question.anchor.quote;
+    const resolution = question.anchor && question.anchor.resolution;
+    if (!quote || (resolution !== "resolved" && resolution !== "moved")) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      const at = node.nodeValue.indexOf(quote);
+      if (at < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + quote.length);
+      const mark = document.createElement("mark");
+      mark.className = "anchor" + (question.question_id === selectedId ? " active" : "");
+      mark.dataset.questionId = question.question_id;
+      mark.tabIndex = 0;
+      mark.setAttribute("aria-label", "Question on this passage");
+      try { range.surroundContents(mark); } catch (error) { return; }
+      break;
+    }
+  });
+}
+document.getElementById("document").addEventListener("click", (event) => {
+  const mark = event.target.closest("mark.anchor");
+  if (mark) selectQuestion(mark.dataset.questionId, "respond");
+});
+function renderOutline() {
+  const outline = document.getElementById("outline");
+  const headings = (roomState.review && roomState.review.outline) || [];
+  if (!headings.length) empty(outline, "No headings yet.");
+  else {
+    outline.replaceChildren();
+    headings.forEach((heading) => {
+      const item = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = heading.path;
+      button.addEventListener("click", () => {
+        const node = document.querySelector('[data-region="' + CSS.escape(heading.path) + '"]');
+        if (node) node.scrollIntoView({block: "start"});
+        if (window.matchMedia("(max-width: 900px)").matches) showPane("document");
+      });
+      item.append(button);
+      outline.append(item);
+    });
+  }
+  const select = document.getElementById("ask-region");
+  const current = select.value;
+  select.replaceChildren();
+  headings.forEach((heading) => {
+    const option = document.createElement("option");
+    option.value = heading.path;
+    option.textContent = heading.path;
+    select.append(option);
+  });
+  if (current) select.value = current;
+}
+function renderQuestions() {
+  const root = document.getElementById("questions");
+  root.replaceChildren();
+  const items = filteredQuestions();
+  if (!items.length) {
+    const emptyState = document.createElement("p");
+    emptyState.className = "meta";
+    emptyState.textContent = filter === "all" ? "No questions yet. An agent, or the form below, can anchor one to a passage." : "Nothing in this filter.";
+    root.append(emptyState);
+    return;
+  }
+  items.forEach((question) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "question";
+    button.setAttribute("aria-pressed", question.question_id === selectedId ? "true" : "false");
+    const title = document.createElement("strong");
+    title.textContent = question.prompt;
+    const meta = document.createElement("small");
+    const where = question.anchor.resolution === "stale" || question.anchor.resolution === "ambiguous"
+      ? question.anchor.resolution
+      : (question.anchor.resolved_region || question.anchor.region);
+    meta.textContent = question.status + " · " + question.kind + " · " + where + " · " + (question.created_by_kind || "participant");
+    if (question.created_by_kind === "agent") meta.className = "agent";
+    if (question.anchor.resolution === "stale" || question.anchor.resolution === "ambiguous") meta.classList.add("stale");
+    button.append(title, meta);
+    button.addEventListener("click", () => selectQuestion(question.question_id, "respond"));
+    root.append(button);
+  });
+}
+function latestAnswer(question) {
+  const responses = question.responses || [];
+  return responses.length ? responses[responses.length - 1] : null;
+}
+function renderResponse(force) {
+  const root = document.getElementById("response");
+  const active = document.activeElement;
+  if (!force && root.dataset.questionId === (selectedId || "") && active && root.contains(active) && (active.tagName === "TEXTAREA" || active.tagName === "INPUT")) return;
+  root.dataset.questionId = selectedId || "";
+  root.replaceChildren();
+  const question = questions().find((item) => item.question_id === selectedId);
+  if (!question) {
+    const emptyState = document.createElement("p");
+    emptyState.className = "meta";
+    emptyState.textContent = "Select a question to answer it. The matching passage is highlighted in the source.";
+    root.append(emptyState);
+    return;
+  }
+  const prompt = document.createElement("p");
+  const strong = document.createElement("strong");
+  strong.textContent = question.prompt;
+  prompt.append(strong);
+  root.append(prompt);
+  const meta = document.createElement("p");
+  meta.className = "meta";
+  meta.textContent = (question.required ? "Required" : "Optional") + " · " + question.status;
+  if (question.created_by_kind === "agent") meta.textContent += " · asked by an agent";
+  root.append(meta);
+  if (question.anchor.resolution === "stale" || question.anchor.resolution === "ambiguous") {
+    const warn = document.createElement("p");
+    warn.className = "stale";
+    warn.textContent = "This anchor is " + question.anchor.resolution + ". It was not attached to a different passage.";
+    root.append(warn);
+  } else if (question.anchor.passage) {
+    const passage = document.createElement("blockquote");
+    passage.textContent = question.anchor.passage;
+    root.append(passage);
+  }
+  const saved = latestAnswer(question);
+  const draftKey = "ce-review-draft:" + question.question_id;
+  let draft = null;
+  try { draft = JSON.parse(sessionStorage.getItem(draftKey) || "null"); } catch (error) {}
+  const form = document.createElement("form");
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveAnswer(true);
+  });
+  if (question.kind === "text") {
+    const area = document.createElement("textarea");
+    area.id = "answer-value";
+    area.setAttribute("aria-label", "Answer");
+    area.value = draft && draft.value != null ? draft.value : (saved ? saved.value : "");
+    area.addEventListener("input", () => { rememberDraft(); scheduleSave(); });
+    form.append(area);
+  } else if (question.kind === "yes_no" || question.kind === "approve_reject" || question.kind === "single") {
+    const options = question.kind === "yes_no" ? [["yes", true], ["no", false]]
+      : question.kind === "approve_reject" ? [["approve", "approve"], ["reject", "reject"]]
+      : question.options.map((option) => [option, option]);
+    const current = draft && draft.value != null ? draft.value : (saved ? saved.value : null);
+    options.forEach((pair) => {
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "answer";
+      input.value = String(pair[1]);
+      input.dataset.raw = JSON.stringify(pair[1]);
+      if (JSON.stringify(current) === JSON.stringify(pair[1])) input.checked = true;
+      input.addEventListener("change", () => { rememberDraft(); scheduleSave(); });
+      label.append(input, document.createTextNode(" " + pair[0]));
+      form.append(label);
+    });
+    if (question.kind === "approve_reject") {
+      const hint = document.createElement("p");
+      hint.className = "meta";
+      hint.textContent = "This records your decision on the question. It does not change the document.";
+      form.append(hint);
+    }
+  } else if (question.kind === "multi") {
+    const current = draft && Array.isArray(draft.value) ? draft.value : (saved && Array.isArray(saved.value) ? saved.value : []);
+    question.options.forEach((option) => {
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = option;
+      input.checked = current.indexOf(option) !== -1;
+      input.addEventListener("change", () => { rememberDraft(); scheduleSave(); });
+      label.append(input, document.createTextNode(" " + option));
+      form.append(label);
+    });
+  }
+  const rationale = document.createElement("textarea");
+  rationale.id = "answer-rationale";
+  rationale.setAttribute("aria-label", "Rationale");
+  rationale.placeholder = "Rationale, optional";
+  rationale.value = draft && draft.rationale != null ? draft.rationale : (saved ? saved.rationale : "");
+  rationale.addEventListener("input", () => { rememberDraft(); scheduleSave(); });
+  form.append(rationale);
+  const actions = document.createElement("div");
+  actions.className = "row";
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.textContent = "Save answer";
+  submit.disabled = !canAnswer();
+  const previous = document.createElement("button");
+  previous.type = "button";
+  previous.textContent = "Previous";
+  previous.addEventListener("click", () => moveQuestion(-1));
+  const next = document.createElement("button");
+  next.type = "button";
+  next.textContent = "Next";
+  next.addEventListener("click", () => moveQuestion(1));
+  actions.append(submit, previous, next);
+  form.append(actions);
+  const saveState = document.createElement("p");
+  saveState.id = "save-state";
+  saveState.className = "meta";
+  saveState.setAttribute("role", "status");
+  saveState.textContent = draft ? "Unsaved" : (saved ? "Saved" : "");
+  form.append(saveState);
+  root.append(form);
+  (question.comments || []).forEach((comment) => {
+    const item = document.createElement("p");
+    item.className = "comment";
+    item.textContent = (comment.participant_kind || "participant") + ": " + comment.body;
+    root.append(item);
+  });
+  if (canComment()) {
+    const commentForm = document.createElement("form");
+    const commentBody = document.createElement("textarea");
+    commentBody.setAttribute("aria-label", "Comment");
+    commentBody.placeholder = "Comment or follow-up note";
+    const commentButton = document.createElement("button");
+    commentButton.type = "submit";
+    commentButton.textContent = "Add comment";
+    commentForm.append(commentBody, commentButton);
+    commentForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      notice.textContent = "";
+      try {
+        await call("/workspace/review/comment", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({question_id: question.question_id, body: commentBody.value}),
+        });
+        await load(new Set(["all"]));
+      } catch (error) { notice.textContent = error.message; }
+    });
+    root.append(commentForm);
+  }
+  if (can("propose") && question.status !== "resolved" && question.status !== "rejected") {
+    const clarify = document.createElement("button");
+    clarify.type = "button";
+    clarify.textContent = question.status === "needs_clarification" ? "Mark open" : "Needs clarification";
+    clarify.addEventListener("click", () => setQuestionStatus(question.question_id, question.status === "needs_clarification" ? "open" : "needs_clarification"));
+    root.append(clarify);
+  }
+  if (can("approve") && question.status !== "resolved") {
+    const resolve = document.createElement("button");
+    resolve.type = "button";
+    resolve.className = "approve";
+    resolve.textContent = "Resolve question";
+    resolve.addEventListener("click", () => setQuestionStatus(question.question_id, "resolved"));
+    root.append(resolve);
+  }
+  if (can("propose") && roomState.review.status === "open") {
+    const follow = document.createElement("form");
+    const followPrompt = document.createElement("textarea");
+    followPrompt.setAttribute("aria-label", "Follow-up question");
+    followPrompt.placeholder = "Follow-up question on this passage";
+    const followButton = document.createElement("button");
+    followButton.type = "submit";
+    followButton.textContent = "Ask follow-up";
+    follow.append(followPrompt, followButton);
+    follow.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      notice.textContent = "";
+      try {
+        const created = await call("/workspace/review/questions", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            parent_id: question.question_id,
+            kind: "text",
+            prompt: followPrompt.value,
+          }),
+        });
+        selectedId = created.question_id;
+        await load(new Set(["all"]));
+      } catch (error) { notice.textContent = error.message; }
+    });
+    root.append(follow);
+  }
+}
+function currentValue(question) {
+  if (question.kind === "text") return document.getElementById("answer-value").value;
+  if (question.kind === "multi") {
+    return Array.from(document.querySelectorAll("#response input[type=checkbox]:checked")).map((item) => item.value);
+  }
+  const chosen = document.querySelector("#response input[type=radio]:checked");
+  return chosen ? JSON.parse(chosen.dataset.raw) : null;
+}
+function rememberDraft() {
+  const question = questions().find((item) => item.question_id === selectedId);
+  if (!question) return;
+  const value = currentValue(question);
+  const rationale = document.getElementById("answer-rationale").value;
+  try {
+    sessionStorage.setItem("ce-review-draft:" + question.question_id, JSON.stringify({value, rationale}));
+  } catch (error) {}
+  const state = document.getElementById("save-state");
+  if (state) state.textContent = "Unsaved";
+}
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => saveAnswer(false), 700);
+}
+async function saveAnswer(explicit) {
+  const question = questions().find((item) => item.question_id === selectedId);
+  if (!question || !canAnswer()) return;
+  const value = currentValue(question);
+  const rationale = document.getElementById("answer-rationale").value;
+  const emptyText = question.kind === "text" && !String(value || "").trim();
+  const emptyMulti = question.kind === "multi" && (!value || !value.length);
+  const emptyChoice = value == null;
+  if (question.required && (emptyText || emptyMulti || (question.kind !== "text" && question.kind !== "multi" && emptyChoice))) {
+    const state = document.getElementById("save-state");
+    if (state) state.textContent = explicit ? "This question requires an answer." : "Unsaved";
+    return;
+  }
+  const state = document.getElementById("save-state");
+  if (state) state.textContent = "Saving";
+  localAction = true;
+  try {
+    await call("/workspace/review/answer", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({question_id: question.question_id, value, rationale}),
+    });
+    try { sessionStorage.removeItem("ce-review-draft:" + question.question_id); } catch (error) {}
+    if (state) state.textContent = "Saved";
+    await load(new Set(["all"]));
+  } catch (error) {
+    if (state) state.textContent = error.message;
+    localAction = false;
+  }
+}
+function moveQuestion(step) {
+  const items = filteredQuestions();
+  const index = items.findIndex((item) => item.question_id === selectedId);
+  const next = items[index + step] || items[step > 0 ? 0 : items.length - 1];
+  if (next) selectQuestion(next.question_id);
+}
+async function setQuestionStatus(id, status) {
+  notice.textContent = "";
+  try {
+    await call("/workspace/review/question/status", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({question_id: id, status}),
+    });
+    await load(new Set(["all"]));
+  } catch (error) { notice.textContent = error.message; }
 }
 async function review(id, approve) {
   notice.textContent = "";
@@ -177,17 +900,16 @@ function renderProposals(proposals) {
   const root = document.getElementById("proposals");
   root.replaceChildren();
   if (!proposals.length) {
-    root.textContent = "No proposals yet.";
+    root.textContent = "No proposed changes.";
     return;
   }
   for (const proposal of proposals) {
     const card = document.createElement("div");
-    card.style.padding = "8px 0";
-    card.style.borderTop = "1px solid var(--line)";
+    card.className = "proposal";
     const title = document.createElement("strong");
     title.textContent = proposal.summary;
-    const meta = document.createElement("div");
-    meta.className = "meta";
+    const meta = document.createElement("small");
+    meta.className = "proposed";
     meta.textContent = proposal.status + " · base v" + proposal.base_version + " · " + proposal.target;
     card.append(title, meta);
     if (proposal.whole_document) {
@@ -207,7 +929,7 @@ function renderProposals(proposals) {
       diff.textContent = proposal.diff;
       card.append(diff);
     }
-    if (proposal.status === "pending") {
+    if (proposal.status === "pending" && can("approve")) {
       const approve = document.createElement("button");
       approve.type = "button";
       approve.className = "approve";
@@ -220,7 +942,7 @@ function renderProposals(proposals) {
       reject.addEventListener("click", () => review(proposal.proposal_id, false));
       card.append(approve, reject);
     }
-    if (proposal.status === "approved") {
+    if (proposal.status === "approved" && can("commit")) {
       const commit = document.createElement("button");
       commit.type = "button";
       commit.textContent = "Commit";
@@ -239,7 +961,7 @@ function renderPeople(room) {
       const item = document.createElement("li");
       item.textContent = person.kind + ": " + person.name + (person.transport ? " · " + person.transport : "");
       const caps = person.capabilities || [];
-      if (caps.indexOf("*") === -1) {
+      if (caps.indexOf("*") === -1 && can("admin")) {
         const remove = document.createElement("button");
         remove.type = "button";
         remove.textContent = "Remove";
@@ -265,14 +987,14 @@ function renderLeases(room) {
 function renderMode(room) {
   const status = room.status || {};
   const baton = status.baton;
-  let text = "Mode " + (status.mode || "review") + " · max " + (status.baton_max_minutes || 15) + " minutes";
+  let line = "Mode " + (status.mode || "review") + " · max " + (status.baton_max_minutes || 15) + " minutes";
   if (status.baton_max_renewals != null) {
     const used = baton ? baton.renewals : 0;
-    text += " · renewals " + used + "/" + status.baton_max_renewals;
+    line += " · renewals " + used + "/" + status.baton_max_renewals;
   }
-  if (baton) text += " · " + baton.holder + " until " + baton.expires_at;
-  else text += " · no baton held";
-  document.getElementById("mode-banner").textContent = text;
+  if (baton) line += " · " + baton.holder + " until " + baton.expires_at;
+  else line += " · no baton held";
+  document.getElementById("mode-banner").textContent = line;
 }
 async function setMode(mode) {
   notice.textContent = "";
@@ -338,25 +1060,14 @@ function renderCommits(room) {
       diff.textContent = commit.diff;
       card.append(diff);
     }
-    const revert = document.createElement("button");
-    revert.type = "button";
-    revert.textContent = "Revert to v" + commit.version;
-    revert.addEventListener("click", () => revertTo(commit.version));
-    card.append(revert);
-    root.append(card);
-  }
-}
-function renderOutline(room) {
-  const outline = document.getElementById("outline");
-  const headings = room.summary.outline || [];
-  if (!headings.length) empty(outline, "No headings yet.");
-  else {
-    outline.replaceChildren();
-    for (const heading of headings) {
-      const item = document.createElement("li");
-      item.textContent = "  ".repeat(Math.max(0, heading.level - 1)) + heading.path;
-      outline.append(item);
+    if (can("admin")) {
+      const revert = document.createElement("button");
+      revert.type = "button";
+      revert.textContent = "Revert to v" + commit.version;
+      revert.addEventListener("click", () => revertTo(commit.version));
+      card.append(revert);
     }
+    root.append(card);
   }
 }
 function renderEvents(room) {
@@ -371,11 +1082,33 @@ function renderEvents(room) {
     lastEventId = room.events[0].event_id;
   }
 }
+function renderProgress() {
+  const counts = (roomState.review && roomState.review.counts) || {};
+  const status = (roomState.review && roomState.review.status) || "open";
+  const open = (counts.open || 0) + (counts.needs_clarification || 0);
+  text("progress", open + " unanswered · " + (counts.answered || 0) + " answered · review " + status);
+  const complete = document.getElementById("complete-review");
+  const reopen = document.getElementById("reopen-review");
+  complete.hidden = !(can("approve") && status === "open");
+  reopen.hidden = !(can("admin") && status !== "open");
+}
+async function setReviewStatus(status) {
+  notice.textContent = "";
+  try {
+    await call("/workspace/review/status", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({status}),
+    });
+    await load(new Set(["all"]));
+  } catch (error) { notice.textContent = error.message; }
+}
 let loadGen = 0;
 async function load(scopes) {
   const gen = ++loadGen;
   const room = await call("/workspace/room");
   if (gen !== loadGen) return;
+  roomState = room;
   const everything = !scopes || scopes.has("all");
   text("workspace-name", room.status.name || "Complexity Eater");
   if (seenVersion !== null && room.status.version !== seenVersion && !localAction) {
@@ -389,18 +1122,25 @@ async function load(scopes) {
   const encrypted = listener.encrypted ? "encrypted" : "not encrypted";
   text("connection", (listener.type || "local") + " · " + (listener.mode || "local") + " · " + encrypted);
   renderMode(room);
+  renderProgress();
   if (everything || scopes.has("participants")) renderPeople(room);
   if (everything || scopes.has("leases")) renderLeases(room);
-  if (everything || scopes.has("proposals")) renderProposals(room.proposals);
-  if (everything || scopes.has("document")) {
-    renderOutline(room);
+  if (everything || scopes.has("proposals") || scopes.has("review")) renderProposals(room.proposals || []);
+  if (everything || scopes.has("document") || scopes.has("review")) {
+    renderDocument();
+    renderOutline();
     renderCommits(room);
+  }
+  if (everything || scopes.has("review")) {
+    renderQuestions();
+    renderResponse();
   }
   renderEvents(room);
 }
 function scopeFor(event) {
   const type = event.event_type || "";
   if (type.indexOf("proposal.") === 0) return "proposals";
+  if (type.indexOf("question.") === 0 || type.indexOf("comment.") === 0 || type === "review.status") return "review";
   if (type === "change.committed" || type === "workspace.created" || type.indexOf("baton.") === 0 || type === "room.mode_changed") return "document";
   if (type.indexOf("lease.") === 0) return "leases";
   if (type.indexOf("participant.") === 0 || type.indexOf("session.") === 0) return "participants";
@@ -408,8 +1148,10 @@ function scopeFor(event) {
 }
 function editing() {
   const active = document.activeElement;
-  const ignored = ["theme", "create-invite", "mode-review", "mode-baton", "revoke-baton"];
-  return active && active.tagName === "BUTTON" && ignored.indexOf(active.id) === -1;
+  if (!active) return false;
+  if (active.tagName === "TEXTAREA" || active.tagName === "INPUT" || active.tagName === "SELECT") return true;
+  const ignored = ["theme", "create-invite", "mode-review", "mode-baton", "revoke-baton", "toggle-source"];
+  return active.tagName === "BUTTON" && ignored.indexOf(active.id) === -1;
 }
 function schedule(scope) {
   if (scope === "all") {
@@ -471,15 +1213,44 @@ async function removeParticipant(participantId) {
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({participant_id: participantId}),
     });
-    notice.textContent = "";
     await load(new Set(["all"]));
-  } catch (error) {
-    notice.textContent = error.message;
-  }
+  } catch (error) { notice.textContent = error.message; }
 }
+document.getElementById("complete-review").addEventListener("click", () => setReviewStatus("complete"));
+document.getElementById("reopen-review").addEventListener("click", () => setReviewStatus("open"));
 document.getElementById("mode-review").addEventListener("click", () => setMode("review"));
 document.getElementById("mode-baton").addEventListener("click", () => setMode("baton"));
 document.getElementById("revoke-baton").addEventListener("click", () => revokeBaton());
+document.getElementById("toggle-source").addEventListener("click", () => {
+  showSource = !showSource;
+  document.getElementById("toggle-source").textContent = showSource ? "Show reading view" : "Show source";
+  renderDocument();
+});
+document.getElementById("ask-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  notice.textContent = "";
+  const kind = document.getElementById("ask-kind").value;
+  const options = document.getElementById("ask-options").value.split("\n").map((item) => item.trim()).filter(Boolean);
+  const body = {
+    kind,
+    prompt: document.getElementById("ask-prompt").value,
+    region: document.getElementById("ask-region").value,
+    quote: document.getElementById("ask-quote").value,
+    required: document.getElementById("ask-required").checked,
+  };
+  if (kind === "single" || kind === "multi") body.options = options;
+  try {
+    const created = await call("/workspace/review/questions", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body),
+    });
+    selectedId = created.question_id;
+    document.getElementById("ask-form").reset();
+    document.getElementById("ask-required").checked = true;
+    await load(new Set(["all"]));
+  } catch (error) { notice.textContent = error.message; }
+});
 document.getElementById("create-invite").addEventListener("click", async () => {
   notice.textContent = "";
   try {
@@ -490,9 +1261,7 @@ document.getElementById("create-invite").addEventListener("click", async () => {
     });
     document.getElementById("invite-uri").textContent = invite.uri;
     document.getElementById("invite-paste").textContent = pasteMessage(invite.uri);
-  } catch (error) {
-    notice.textContent = error.message;
-  }
+  } catch (error) { notice.textContent = error.message; }
 });
 load(new Set(["all"])).then(connectStream).catch((error) => { notice.textContent = error.message; connectStream(); });
 </script>

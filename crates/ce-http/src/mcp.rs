@@ -20,7 +20,7 @@ use sha2::{Digest, Sha256};
 use crate::notify::{
     event_stream, message_frame, resources_for_event, subscribable_resource, workspace_resources,
     NotifyHub, RESOURCE_DOCUMENT, RESOURCE_LEASES, RESOURCE_PARTICIPANTS, RESOURCE_PROPOSALS,
-    RESOURCE_STATUS,
+    RESOURCE_REVIEW, RESOURCE_STATUS,
 };
 
 const HEADER_MISMATCH: i64 = -32020;
@@ -34,6 +34,7 @@ const TASKS_EXTENSION: &str = "io.modelcontextprotocol/tasks";
 struct Tool {
     name: &'static str,
     capability: &'static str,
+    also: &'static [&'static str],
     description: &'static str,
     schema: Value,
 }
@@ -467,6 +468,57 @@ fn tools() -> Vec<Tool> {
             "Reject a handoff result. The execution task stays completed.",
             json!({"type": "object", "properties": {"handoff_id": {"type": "string"}}, "required": ["handoff_id"]}),
         ),
+        tool(
+            "review_context",
+            "read",
+            "Review questions, saved answers, source passages, and proposals. Proposals are not applied to the document.",
+            json!({"type": "object", "properties": {}}),
+        ),
+        tool(
+            "review_export",
+            "read",
+            "Export the review as json or markdown. This does not change the document.",
+            json!({"type": "object", "properties": {"format": {"type": "string", "enum": ["json", "markdown"]}}}),
+        ),
+        tool(
+            "review_question_create",
+            "propose",
+            "Ask a question anchored to a quote in one markdown region. kind is text, single, multi, yes_no, or approve_reject.",
+            json!({"type": "object", "properties": {"parent_id": {"type": "string"}, "kind": {"type": "string", "enum": ["text", "single", "multi", "yes_no", "approve_reject"]}, "prompt": {"type": "string"}, "options": {"type": "array", "items": {"type": "string"}}, "required": {"type": "boolean"}, "region": {"type": "string"}, "quote": {"type": "string"}, "prefix": {"type": "string"}, "suffix": {"type": "string"}, "idempotency_key": {"type": "string"}}, "required": ["kind", "prompt"]}),
+        ),
+        tool(
+            "review_question_update",
+            "propose",
+            "Update the prompt, options, or required flag of an open question you created.",
+            json!({"type": "object", "properties": {"question_id": {"type": "string"}, "prompt": {"type": "string"}, "options": {"type": "array", "items": {"type": "string"}}, "required": {"type": "boolean"}}, "required": ["question_id"]}),
+        ),
+        tool_also(
+            "review_answer",
+            "answer",
+            &["propose"],
+            "Record an answer. propose also grants this. The answer does not change the document.",
+            json!({"type": "object", "properties": {"question_id": {"type": "string"}, "value": {}, "rationale": {"type": "string"}}, "required": ["question_id", "value"]}),
+        ),
+        tool_also(
+            "review_comment",
+            "comment",
+            &["propose"],
+            "Add a comment on a question or region. propose also grants this.",
+            json!({"type": "object", "properties": {"question_id": {"type": "string"}, "region": {"type": "string"}, "quote": {"type": "string"}, "body": {"type": "string"}}, "required": ["body"]}),
+        ),
+        tool_also(
+            "review_question_status",
+            "propose",
+            &["approve"],
+            "Set a question to open, needs_clarification, resolved, or rejected. Closing it requires approve.",
+            json!({"type": "object", "properties": {"question_id": {"type": "string"}, "status": {"type": "string", "enum": ["open", "needs_clarification", "resolved", "rejected"]}}, "required": ["question_id", "status"]}),
+        ),
+        tool(
+            "review_status",
+            "approve",
+            "Mark the review complete or returned. Reopening it requires admin.",
+            json!({"type": "object", "properties": {"status": {"type": "string", "enum": ["open", "complete", "returned"]}}, "required": ["status"]}),
+        ),
     ]
 }
 
@@ -476,12 +528,28 @@ fn tool(
     description: &'static str,
     schema: Value,
 ) -> Tool {
+    tool_also(name, capability, &[], description, schema)
+}
+
+fn tool_also(
+    name: &'static str,
+    capability: &'static str,
+    also: &'static [&'static str],
+    description: &'static str,
+    schema: Value,
+) -> Tool {
     Tool {
         name,
         capability,
+        also,
         description,
         schema,
     }
+}
+
+fn tool_allowed(granted: &[String], item: &Tool) -> bool {
+    has_capability(granted, item.capability)
+        || item.also.iter().any(|cap| has_capability(granted, cap))
 }
 
 fn tools_list(session: Option<&Session>) -> Value {
@@ -490,7 +558,7 @@ fn tools_list(session: Option<&Session>) -> Value {
         .unwrap_or_default();
     let tools = tools()
         .into_iter()
-        .filter(|item| has_capability(&granted, item.capability))
+        .filter(|item| tool_allowed(&granted, item))
         .map(|item| json!({"name": item.name, "description": item.description, "inputSchema": item.schema}))
         .collect::<Vec<_>>();
     json!({"resultType": "complete", "tools": tools, "ttlMs": 0, "cacheScope": "private"})
@@ -508,7 +576,7 @@ fn tools_call(
     let tool = tools().into_iter().find(|item| item.name == name);
     if tool
         .as_ref()
-        .is_none_or(|item| !has_capability(&session.capabilities, item.capability))
+        .is_none_or(|item| !tool_allowed(&session.capabilities, item))
     {
         let capability = tool
             .as_ref()
@@ -691,6 +759,16 @@ fn dispatch(
         "handoff_reject" => as_json(
             engine.reject_handoff(&session.participant_id, required_str(args, "handoff_id")?)?,
         )?,
+        "review_context" => as_json(engine.review_context()?)?,
+        "review_export" => as_json(
+            engine.export_review(args.get("format").and_then(Value::as_str).unwrap_or("json"))?,
+        )?,
+        "review_question_create" => as_json(engine.create_question(session, args)?)?,
+        "review_question_update" => as_json(engine.update_question(session, args)?)?,
+        "review_answer" => as_json(engine.answer_question(session, args)?)?,
+        "review_comment" => as_json(engine.add_comment(session, args)?)?,
+        "review_question_status" => as_json(engine.set_question_status(session, args)?)?,
+        "review_status" => as_json(engine.set_review_status(session, args)?)?,
         "workspace_review" => as_json(
             engine.review_proposal(
                 required_str(args, "proposal_id")?,
@@ -810,6 +888,8 @@ fn read_workspace_resource(
         RESOURCE_LEASES => serde_json::to_value(engine.leases()?)
             .map_err(|err| ce_protocol::internal_error(err.to_string()))?,
         RESOURCE_PARTICIPANTS => serde_json::to_value(engine.participants()?)
+            .map_err(|err| ce_protocol::internal_error(err.to_string()))?,
+        RESOURCE_REVIEW => serde_json::to_value(engine.review_context()?)
             .map_err(|err| ce_protocol::internal_error(err.to_string()))?,
         _ => return Err(invalid_request("unknown resource")),
     };

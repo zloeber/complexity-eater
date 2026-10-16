@@ -12,7 +12,7 @@ Local rooms and peer rooms are the product that exists. The items below are orde
 ## Next, still local
 
 3. Package `ce` for Homebrew. Tag builds already publish Linux and macOS binaries.
-4. Keep the human page as a projection of the engine. Improve it only when a workflow cannot be done with `ce` or the page today. Handoffs and MCP tasks are sidecar records. The page does not render them yet. Live notifications stay hints; there is no shared broker in local mode.
+4. Keep the human page as a projection of the engine. It now shows the review canvas: anchored questions, answers, comments, and proposals that have not been committed. Handoffs and MCP tasks are sidecar records. The page does not render those yet. Live notifications stay hints; there is no shared broker in local mode.
 
 ## Self-hosted
 

@@ -14,7 +14,7 @@ edges:
     condition: first-time setup or running the project
   - target: patterns/INDEX.md
     condition: starting any concrete task — check for a matching pattern first
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 ---
 
 # Session Bootstrap
@@ -35,6 +35,7 @@ Read .mex/AGENTS.md if you have not already. Then read this file fully before an
 - The room mode is `review` by default. `baton` lets the holder write one region directly, with a time cap. Mode, holder, and the cap are on `workspace_status`. A room can cap renewals of one grant. Status, region lists, and unscoped reads stay bounded. An oversized body surfaces as `limit_exceeded`.
 - Room settings can come from TOML. The user file is `config.toml` in the platform config directory. `<substrate>.commonroom.toml` overrides it, `--config` overrides both, and an explicit CLI flag wins. Omitted flags keep the file value.
 - `demo/handoff` is a Cloudflare Worker and one Durable Object for the manager-to-employee markdown handoff. It is not a hosted room. The live page is `https://complexity-eater-handoff.zloeber.workers.dev`. Documents are in the Durable Object because Artifacts returned `10403` and `10004` on this account. The Artifacts git path runs only when the binding is deployed. Mock profiles are simulated. Room approval stays in the engine.
+- The human page is the review canvas. Questions, responses, and comments are sidecar rows anchored to a region quote. They do not change the markdown. A document edit is still a proposal. `propose` also covers `answer` and `comment`. Default invitation capabilities are unchanged. `commonroom://workspace/review` is the MCP hint. The Worker demo does not store these rows.
 
 ## Behavioural Contract
 1. Start here every session.
