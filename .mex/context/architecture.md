@@ -18,7 +18,9 @@ edges:
     condition: when changing how a proposal replaces a region or rebases
   - target: ../patterns/room-mode.md
     condition: when changing review or baton mode, or the owner session gate
-last_updated: 2026-10-15
+  - target: ../patterns/review-canvas.md
+    condition: when changing anchored questions, answers, or the human review page
+last_updated: 2026-10-16
 ---
 
 # Architecture
@@ -46,7 +48,8 @@ last_updated: 2026-10-15
 - The session ingress is separate and accepts bearer tokens; `POST /mcp` is mounted only there.
 - Invitations are encoded with the `commonroom://join/` scheme and may point to loopback or a discovered transport.
 - A transport plugin is optional; a missing plugin surfaces as `transport_unavailable` rather than a public listener.
-- `demo/handoff` is one Cloudflare Worker and one Durable Object for a pasted markdown handoff between two demo profiles. It checks sessions itself and stores the sealed original plus later revisions. It does not write the room markdown file. Artifacts commits are used only when that binding is deployed.
+- `demo/handoff` is one Cloudflare Worker and one Durable Object for a pasted markdown handoff between two demo profiles. It checks sessions itself and stores the sealed original plus later revisions. It does not write the room markdown file. Artifacts commits are used only when that binding is deployed. It does not store review questions.
+- Review questions, responses, and comments are sidecar rows. The human page reads them from `/workspace/room`. An answer does not write the markdown. Proposed edits remain proposals. See [the review canvas pattern](../patterns/review-canvas.md).
 - The public website in `website/` is static and separate. It prepares local `ce` commands from room-launch contract version 1, publishes the commonroom skill and the `workspace_onboarding` prompt from `skills/commonroom/`, and does not upload a workspace or provision a hosted room. `https://complexityeater.com/agent` is the markdown procedure an agent follows to install `ce`, optionally install `tailcat`, and save the skills it uses to open or join a room.
 
 ## Important invariants

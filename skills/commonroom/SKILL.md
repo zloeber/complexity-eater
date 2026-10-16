@@ -132,6 +132,16 @@ If this host offers `resources.subscribe`, subscribe to `commonroom://workspace/
 
 The other participant calls `handoff_accept`, then `handoff_complete` with the result. You read it with `tasks/get` or `handoff_get`. `handoff_events` is the recovery log. `subscriptions/listen` with that `taskId` is a live hint and does not replay what you missed. Approval is `handoff_approve`, and only a session with `approve` can do it. Completing the task does not approve the result.
 
+## Review questions
+
+Ask about a passage with `review_question_create`. `kind` is `text`, `single`, `multi`, `yes_no`, or `approve_reject`. Send `region` and `quote`. The quote has to occur once in that region. `single` and `multi` take `options`. Do not send HTML, scripts, or any other UI field. An unknown field is `invalid_request`.
+
+`review_context` returns each saved answer with `question_id`, the value, the rationale, and `source.passage` when the anchor still resolves. `source.resolution` is `resolved`, `moved`, `stale`, or `ambiguous`. A stale or ambiguous anchor was not attached to a different passage. Read it again after `question.answered` or a `commonroom://workspace/review` notification. The notification is a hint and does not contain the answer.
+
+`review_answer` records a response. `propose` includes `answer` and `comment`, so a default invitation can do both. `answer` alone cannot create questions or proposals. `approve_reject` is a decision on that question. It does not approve a document change. Propose the edit with `workspace_propose` and wait for approval. `review_export` returns JSON or Markdown and does not write the file.
+
+`review_status` of `complete` or `returned` requires `approve`. New questions and answers stop until an admin sets it back to `open`.
+
 ## Regions
 
 Markdown regions are ATX heading paths such as `Architecture` or `Architecture/Goals`. A heading needs a space after the hashes. Text inside a fenced code block is not a heading. Setext headings (`===` / `---`) are not regions. Checkout `section:Architecture` or the full path. Read that section instead of the file. If a name matches more than one heading, pass the full path.

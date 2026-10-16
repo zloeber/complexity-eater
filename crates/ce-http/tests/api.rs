@@ -1095,6 +1095,198 @@ async fn owner_listener_keeps_the_host_session_on_the_printed_token() {
     assert!(denied.starts_with("HTTP/1.1 403"), "{denied}");
 }
 
+#[tokio::test]
+async fn review_answer_round_trips_through_http_and_mcp() {
+    let doc = "# Storage\n\n## Decision\n\nKeep the sidecar in SQLite.\n";
+    let (_dir, engine) = engine(doc);
+    let path = engine.workspace_path();
+    let host = engine.ensure_host("Ada", "local").unwrap();
+    let owner_url = serve(create_router(
+        Arc::clone(&engine),
+        Access::Owner,
+        Some(host),
+    ))
+    .await;
+    let ingress_url = serve(create_router(Arc::clone(&engine), Access::Session, None)).await;
+    let owner = client();
+    owner.get(format!("{owner_url}/")).send().await.unwrap();
+    let invite = engine.create_invite().unwrap();
+    let ingress = client();
+    let joined = ingress
+        .post(format!("{ingress_url}/session/join"))
+        .json(&json!({"invite": invite.token, "name": "Asker", "kind": "agent", "transport": "loopback"}))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    let session = joined["session_id"].as_str().unwrap().to_string();
+    let created = mcp_tool(
+        &ingress,
+        &ingress_url,
+        &session,
+        "review_question_create",
+        json!({
+            "kind": "yes_no",
+            "prompt": "Should the sidecar stay in SQLite?",
+            "region": "Storage/Decision",
+            "quote": "Keep the sidecar in SQLite."
+        }),
+    )
+    .await;
+    assert_eq!(created["anchor"]["resolution"], "resolved");
+    let question_id = created["question_id"].as_str().unwrap();
+    let answered = owner
+        .post(format!("{owner_url}/workspace/review/answer"))
+        .json(&json!({"question_id": question_id, "value": true, "rationale": "One writer is enough."}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(answered.status(), 200, "{:?}", answered.text().await);
+    let context = mcp_tool(
+        &ingress,
+        &ingress_url,
+        &session,
+        "review_context",
+        json!({}),
+    )
+    .await;
+    let answer = &context["review"]["answers"][0];
+    assert_eq!(answer["question_id"], question_id);
+    assert_eq!(answer["value"], true);
+    assert!(answer["source"]["passage"]
+        .as_str()
+        .unwrap()
+        .contains("SQLite"));
+    let proposed = ingress
+        .post(format!("{ingress_url}/workspace/propose"))
+        .bearer_auth(&session)
+        .json(&json!({
+            "target": "Storage/Decision",
+            "base_version": 1,
+            "summary": "record the decision",
+            "change": {"content": "## Decision\n\nKeep the sidecar in SQLite. Confirmed.\n"}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(proposed.status(), 200, "{}", proposed.text().await.unwrap());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), doc);
+    assert!(!context["review"]["document"]
+        .as_str()
+        .unwrap()
+        .contains("Confirmed."));
+    let room = owner
+        .get(format!("{owner_url}/workspace/room"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert_eq!(room["review"]["answers"][0]["value"], true);
+    assert_eq!(room["proposals"][0]["status"], "pending");
+    assert!(room["status"]["path"].is_string());
+
+    let reader_invite = engine
+        .create_invite_with(Some("read"), None, 60, Some(1), None)
+        .unwrap();
+    let reader = ingress
+        .post(format!("{ingress_url}/session/join"))
+        .json(&json!({"invite": reader_invite.token, "name": "Reader", "kind": "human", "transport": "loopback"}))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    let denied = ingress
+        .post(format!("{ingress_url}/workspace/review/answer"))
+        .bearer_auth(reader["session_id"].as_str().unwrap())
+        .json(&json!({"question_id": question_id, "value": false}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), 403);
+    assert_eq!(
+        denied.json::<serde_json::Value>().await.unwrap()["error"],
+        "permission_denied"
+    );
+    let invalid = ingress
+        .post(format!("{ingress_url}/workspace/review/questions"))
+        .bearer_auth(&session)
+        .json(
+            &json!({"kind": "widget", "prompt": "Paint this", "html": "<script>alert(1)</script>"}),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), 400);
+    assert_eq!(
+        invalid.json::<serde_json::Value>().await.unwrap()["error"],
+        "invalid_request"
+    );
+    let commented = owner
+        .post(format!("{owner_url}/workspace/review/comment"))
+        .json(&json!({"question_id": question_id, "body": "Please keep the file readable."}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(commented.status(), 200);
+    let again = owner
+        .get(format!("{owner_url}/workspace/review"))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert_eq!(
+        again["review"]["answers"][0]["rationale"],
+        "One writer is enough."
+    );
+    assert_eq!(
+        again["review"]["questions"][0]["comments"][0]["body"],
+        "Please keep the file readable."
+    );
+    assert!(!again["review"]["document"]
+        .as_str()
+        .unwrap()
+        .contains("Confirmed."));
+    assert_eq!(again["proposals"][0]["status"], "pending");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), doc);
+}
+
+async fn mcp_tool(
+    client: &reqwest::Client,
+    base: &str,
+    session: &str,
+    name: &str,
+    arguments: serde_json::Value,
+) -> serde_json::Value {
+    let response = client
+        .post(format!("{base}/mcp"))
+        .bearer_auth(session)
+        .header("MCP-Protocol-Version", MCP_PROTOCOL_VERSION)
+        .header("Mcp-Method", "tools/call")
+        .header("Mcp-Name", name)
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": mcp_params(json!({"name": name, "arguments": arguments}))
+        }))
+        .send()
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["result"]["isError"], false, "{body}");
+    serde_json::from_str(body["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
+}
+
 fn collect_listen(url: String, bearer: String, body: serde_json::Value) -> Arc<Mutex<String>> {
     let buf = Arc::new(Mutex::new(String::new()));
     let shared = Arc::clone(&buf);

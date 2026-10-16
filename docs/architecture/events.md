@@ -43,6 +43,9 @@ The names are the ones the engine already used. They are finer than a single "up
 | Execution task created or changed | `task.created`, `task.updated` |
 | Editing baton granted, renewed, released, expired, or revoked | `baton.granted`, `baton.renewed`, `baton.released`, `baton.expired`, `baton.revoked` |
 | Room mode switched | `room.mode_changed` |
+| Review question created, updated, answered, or moved to another status | `question.created`, `question.updated`, `question.answered`, `question.status` |
+| Review comment added | `comment.created` |
+| Review marked open, complete, or returned | `review.status` |
 
 A denied call does not emit the success event for that call. A second release of a lease, or a second revoke of an invitation, does not emit another event. `proposal.conflicted` is recorded because the proposal status did change; `change.committed` is not.
 
@@ -101,6 +104,7 @@ Workspace resources, for a session that can `read`:
 | `commonroom://workspace/proposals` | Proposals. |
 | `commonroom://workspace/leases` | Active leases. |
 | `commonroom://workspace/participants` | Members who have not left. |
+| `commonroom://workspace/review` | Review questions, answers, passages, and proposals. The notification does not include the answer text. |
 
 `skill://commonroom/SKILL.md` is readable and does not accept a subscription.
 

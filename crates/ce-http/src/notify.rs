@@ -14,11 +14,12 @@ use axum::body::Bytes;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::Response;
 use ce_core::{
-    is_newer, Delivery, Event, Session, WorkspaceEngine, ARTIFACT_CHANGED, LEASE_ACQUIRED,
-    LEASE_EXPIRED, LEASE_RELEASED, PARTICIPANT_JOINED, PARTICIPANT_LEFT, PROPOSAL_APPROVED,
-    PROPOSAL_COMMITTED, PROPOSAL_CONFLICTED, PROPOSAL_CREATED, PROPOSAL_REJECTED,
-    PROPOSAL_SUPERSEDED, SESSION_CREATED, SESSION_EXPIRED, WORKSPACE_CREATED, WORKSPACE_STARTED,
-    WORKSPACE_STOPPED,
+    is_newer, Delivery, Event, Session, WorkspaceEngine, ARTIFACT_CHANGED, COMMENT_CREATED,
+    LEASE_ACQUIRED, LEASE_EXPIRED, LEASE_RELEASED, PARTICIPANT_JOINED, PARTICIPANT_LEFT,
+    PROPOSAL_APPROVED, PROPOSAL_COMMITTED, PROPOSAL_CONFLICTED, PROPOSAL_CREATED,
+    PROPOSAL_REJECTED, PROPOSAL_SUPERSEDED, QUESTION_ANSWERED, QUESTION_CREATED, QUESTION_STATUS,
+    QUESTION_UPDATED, REVIEW_STATUS, SESSION_CREATED, SESSION_EXPIRED, WORKSPACE_CREATED,
+    WORKSPACE_STARTED, WORKSPACE_STOPPED,
 };
 use ce_protocol::{
     has_capability, invalid_request, permission_denied, CommonroomError, MCP_PROTOCOL_VERSION,
@@ -32,6 +33,7 @@ pub const RESOURCE_DOCUMENT: &str = "commonroom://workspace/document";
 pub const RESOURCE_PROPOSALS: &str = "commonroom://workspace/proposals";
 pub const RESOURCE_LEASES: &str = "commonroom://workspace/leases";
 pub const RESOURCE_PARTICIPANTS: &str = "commonroom://workspace/participants";
+pub const RESOURCE_REVIEW: &str = "commonroom://workspace/review";
 
 const STREAM_CAPACITY: usize = 16;
 const KEEPALIVE: Duration = Duration::from_secs(15);
@@ -51,6 +53,7 @@ pub fn workspace_resources() -> &'static [(&'static str, &'static str, &'static 
             "Workspace participants",
             "application/json",
         ),
+        (RESOURCE_REVIEW, "Workspace review", "application/json"),
     ]
 }
 
@@ -70,6 +73,8 @@ pub fn resources_for_event(event_type: &str) -> &'static [&'static str] {
             &[RESOURCE_PARTICIPANTS, RESOURCE_STATUS]
         }
         WORKSPACE_STARTED | WORKSPACE_STOPPED => &[RESOURCE_STATUS],
+        QUESTION_CREATED | QUESTION_UPDATED | QUESTION_ANSWERED | QUESTION_STATUS
+        | COMMENT_CREATED | REVIEW_STATUS => &[RESOURCE_REVIEW],
         _ => &[],
     }
 }

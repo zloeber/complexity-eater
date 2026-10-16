@@ -30,8 +30,10 @@ use crate::paths::resolve_user_path;
 use crate::{EventFilter, Subscription, SUBSCRIBER_CAPACITY};
 
 mod collaboration;
+mod review;
 
 pub use collaboration::{Handoff, HandoffCreated, NewHandoff, TaskView};
+pub use review::{ReviewBoard, ReviewContext, ReviewCounts, ReviewExport};
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS metadata (
@@ -146,6 +148,46 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE UNIQUE INDEX IF NOT EXISTS handoffs_idempotency
     ON handoffs(creator_id, idempotency_key)
     WHERE idempotency_key IS NOT NULL;
+CREATE TABLE IF NOT EXISTS questions (
+    question_id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    parent_id TEXT,
+    kind TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    options_json TEXT NOT NULL,
+    required INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    region TEXT NOT NULL,
+    quote TEXT NOT NULL,
+    prefix TEXT NOT NULL,
+    suffix TEXT NOT NULL,
+    base_version INTEGER NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    idempotency_key TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS questions_idempotency
+    ON questions(created_by, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
+CREATE TABLE IF NOT EXISTS responses (
+    response_id TEXT PRIMARY KEY,
+    question_id TEXT NOT NULL,
+    participant_id TEXT NOT NULL,
+    value_json TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS comments (
+    comment_id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    question_id TEXT,
+    region TEXT NOT NULL,
+    quote TEXT NOT NULL,
+    body TEXT NOT NULL,
+    participant_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 ";
 
 #[derive(Clone)]

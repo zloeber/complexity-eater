@@ -10,7 +10,7 @@ edges:
     condition: when verifying operational assumptions and supported environments
   - target: ../patterns/handoff-tasks.md
     condition: when the handoff and task split needs the operational steps
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 ---
 
 # Architectural Decisions
@@ -78,4 +78,9 @@ last_updated: 2026-10-15
 ## 2026-10-14 — Release provenance is the version tag
 - Rationale: Dispatching the binary workflow on `main` recorded `refs/heads/main`, so a verifier pinning the tag ref failed.
 - Impact: After semantic-release tags `vX.Y.Z`, the dispatch uses that tag ref. The install page documents `gh attestation verify` next to `SHA256SUMS`.
+- Status: Active
+
+## 2026-10-16 — Review questions live in the sidecar, and the room is the session
+- Rationale: An agent needs a durable answer tied to a passage. Putting that in the markdown would mix the artifact with the conversation. A second review service would split the writer. The existing proposal path already keeps document edits unapplied until approval.
+- Impact: Questions, responses, and comments are tables in `<file>.commonroom.db`. Kinds are a closed set. Unknown fields are rejected. Anchors are a region path plus a quote. A later miss is `stale` or `ambiguous` and is not reattached by guesswork. `propose` also grants answer and comment so the default invitation is unchanged. `answer` and `comment` exist for a narrower grant. The human page renders the board. `demo/handoff` does not.
 - Status: Active

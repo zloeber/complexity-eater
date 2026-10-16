@@ -6,6 +6,7 @@ Work in this room in this order:
 5. In review mode: workspace_checkout, then workspace_propose. change.content is the new region text and must include the heading. change.section, if set, must match target. Wait until the proposal is approved. workspace_commit requires proposal_id.
 6. In baton mode: workspace_baton_status, then workspace_baton_request. workspace_write uses the same change object and only the region you name. Release the baton when you stop. baton_held names the holder and expires_at. If baton_max_renewals is set, stop renewing at that count; baton_renewal_limit means this grant is done.
 7. workspace_release for any lease you still hold.
+8. To ask a person about a passage, call review_question_create with kind, prompt, region, and quote. kind is text, single, multi, yes_no, or approve_reject. Read the answer with review_context. The answer includes the question id and the passage. It does not change the file. A document edit is still workspace_propose, then approval, then workspace_commit.
 
 A commit on one region does not throw away an approved proposal on a different region. The same region still returns stale_version. Whole-file replacement sets change.mode to document.
 

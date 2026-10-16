@@ -42,6 +42,7 @@ Tailcat is a subprocess. This binary does not implement Tailcat's cryptography. 
 * A task id is not a credential. `tasks/get` and `tasks/cancel` require the owner, the assignee, or `admin`. A stranger and a missing id return the same error.
 * Task notifications go only to a listen stream that named that task and whose session can read it. A session from another sidecar is not a member of this one.
 * Handoff and task event payloads omit result text, prompts, and input responses. The handoff row keeps the result for participants who can read the room.
+* Review questions accept a closed set of kinds and string options. Unknown fields, including any UI or script payload, are `invalid_request`. The page renders prompts and answers as text. An answer is sidecar state and does not change the markdown. A read-only session cannot answer. Closing a question or completing the review still requires `approve`. Event payloads carry ids and status, not the answer text.
 * A non-loopback bind refused.
 * Core crates forbidden from naming transport vendors.
 * Session files written with mode `0600` under a `0700` directory on Unix.

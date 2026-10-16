@@ -31,7 +31,7 @@ ce serve / ce join / ce mcp / browser
         +--> <file>.commonroom.db
 ```
 
-HTTP handlers and MCP tools call the same engine methods. The page is a projection of `/workspace/room`. It is not a second write path. Successful changes append a workspace event; the [event model](events.md) is how the page and MCP subscribers hear about it. Handoffs and their execution tasks use the same engine and the same sidecar; see [Tasks and handoffs](tasks.md).
+HTTP handlers and MCP tools call the same engine methods. The page is a projection of `/workspace/room`. It is not a second write path. The page is the [review canvas](review.md): anchored questions and answers live in the sidecar, and a proposal still does not change the markdown until it is approved and committed. Successful changes append a workspace event; the [event model](events.md) is how the page and MCP subscribers hear about it. Handoffs and their execution tasks use the same engine and the same sidecar; see [Tasks and handoffs](tasks.md).
 
 ## Two listeners
 
