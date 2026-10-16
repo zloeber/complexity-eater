@@ -10,17 +10,17 @@ members = [
 default-members = ["crates/ce-cli"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 publish = false
 rust-version = "1.85"
 
 [workspace.dependencies]
-ce-protocol = { path = "crates/ce-protocol", version = "0.3.0" }
-ce-core = { path = "crates/ce-core", version = "0.3.0" }
-ce-transport = { path = "crates/ce-transport", version = "0.3.0" }
-ce-http = { path = "crates/ce-http", version = "0.3.0" }
+ce-protocol = { path = "crates/ce-protocol", version = "0.4.0" }
+ce-core = { path = "crates/ce-core", version = "0.4.0" }
+ce-transport = { path = "crates/ce-transport", version = "0.4.0" }
+ce-http = { path = "crates/ce-http", version = "0.4.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
