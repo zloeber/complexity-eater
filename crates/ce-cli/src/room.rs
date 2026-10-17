@@ -252,7 +252,7 @@ pub async fn start_room(
     })
 }
 
-fn loopback_host(host: &str) -> Result<&'static str, CommonroomError> {
+pub(crate) fn loopback_host(host: &str) -> Result<&'static str, CommonroomError> {
     match host {
         "127.0.0.1" | "localhost" => Ok("127.0.0.1"),
         "::1" => Ok("::1"),
@@ -262,7 +262,7 @@ fn loopback_host(host: &str) -> Result<&'static str, CommonroomError> {
     }
 }
 
-fn wait_until_accepts(host: &str, port: u16) {
+pub(crate) fn wait_until_accepts(host: &str, port: u16) {
     let address = if host == "::1" {
         std::net::SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, port))
     } else {
@@ -398,5 +398,185 @@ mod tests {
         room.shutdown().await;
         engine.close();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn review_questions_and_handoff_survive_without_a_plugin() {
+        let dir = std::env::temp_dir().join(format!(
+            "ce-local-flow-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|value| value.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("idea.md");
+        std::fs::write(
+            &path,
+            "# Architecture\n\n## Goals\n\nship\n\n## Notes\n\nLeave the tunnel out.\n",
+        )
+        .unwrap();
+        let engine = Arc::new(
+            WorkspaceEngine::open(&path, None, ce_protocol::Limits::default(), None).unwrap(),
+        );
+        let mut room = start_room(Arc::clone(&engine), "127.0.0.1", 0, "Ada", None)
+            .await
+            .unwrap();
+        let document = ce_protocol::decode_invitation(&room.invite.uri).unwrap();
+        assert_eq!(document["transport"]["type"], "loopback");
+        let secret = document["secret"].as_str().unwrap().to_string();
+        let host_session = room.host_session.session_id.clone();
+        let document_for_calls = document.clone();
+        let handoff_id = tokio::task::spawn_blocking(move || {
+            run_workflows(&document_for_calls, &secret, &host_session)
+        })
+        .await
+        .unwrap();
+
+        room.shutdown().await;
+        engine.close();
+        let reopened =
+            WorkspaceEngine::open(&path, None, ce_protocol::Limits::default(), None).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("ship the room"), "{text}");
+        let review = reopened.review_context().unwrap();
+        let review = serde_json::to_value(review).unwrap();
+        assert_eq!(review["review"]["answers"][0]["value"], true);
+        let handoff = reopened.get_handoff(&handoff_id).unwrap();
+        let handoff = serde_json::to_value(handoff).unwrap();
+        assert_eq!(handoff["status"], "result_ready");
+        reopened.close();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn run_workflows(document: &serde_json::Value, secret: &str, host: &str) -> String {
+        let (status, joined) = exchange(
+            document,
+            "POST",
+            "/session/join",
+            Some(&json!({
+                "invite": secret,
+                "name": "Agent",
+                "kind": "agent",
+                "transport": "loopback"
+            })),
+            None,
+        );
+        assert_eq!(status, 200, "{joined}");
+        let agent = joined["session_id"].as_str().unwrap().to_string();
+
+        let (status, question) = exchange(
+            document,
+            "POST",
+            "/workspace/review/questions",
+            Some(&json!({
+                "kind": "yes_no",
+                "prompt": "Leave the tunnel out of the protocol?",
+                "region": "Architecture/Notes",
+                "quote": "Leave the tunnel out."
+            })),
+            Some(&agent),
+        );
+        assert_eq!(status, 200, "{question}");
+        let question_id = question["question_id"].as_str().unwrap().to_string();
+        let (status, answered) = exchange(
+            document,
+            "POST",
+            "/workspace/review/answer",
+            Some(&json!({"question_id": question_id, "value": true})),
+            Some(host),
+        );
+        assert_eq!(status, 200, "{answered}");
+
+        let (status, proposed) = exchange(
+            document,
+            "POST",
+            "/workspace/propose",
+            Some(&json!({
+                "target": "section:Goals",
+                "base_version": 1,
+                "summary": "name the goal",
+                "change": {"section": "Goals", "content": "## Goals\n\nship the room\n"}
+            })),
+            Some(&agent),
+        );
+        assert_eq!(status, 200, "{proposed}");
+        let proposal_id = proposed["proposal_id"].as_str().unwrap().to_string();
+        let (status, reviewed) = exchange(
+            document,
+            "POST",
+            "/workspace/proposal/review",
+            Some(&json!({"proposal_id": proposal_id, "approve": true})),
+            Some(host),
+        );
+        assert_eq!(status, 200, "{reviewed}");
+        let (status, committed) = exchange(
+            document,
+            "POST",
+            "/workspace/commit",
+            Some(&json!({"proposal_id": proposal_id})),
+            Some(&agent),
+        );
+        assert_eq!(status, 200, "{committed}");
+
+        let (status, created) = exchange(
+            document,
+            "POST",
+            "/workspace/handoff/create",
+            Some(&json!({
+                "summary": "carry the note",
+                "constraints": "do not publish the management page"
+            })),
+            Some(host),
+        );
+        assert_eq!(status, 200, "{created}");
+        let handoff_id = created["handoff"]["handoff_id"]
+            .as_str()
+            .or_else(|| created["handoff_id"].as_str())
+            .unwrap()
+            .to_string();
+        let (status, accepted) = exchange(
+            document,
+            "POST",
+            "/workspace/handoff/accept",
+            Some(&json!({"handoff_id": handoff_id})),
+            Some(&agent),
+        );
+        assert_eq!(status, 200, "{accepted}");
+        let (status, completed) = exchange(
+            document,
+            "POST",
+            "/workspace/handoff/complete",
+            Some(&json!({"handoff_id": handoff_id, "result": "kept the note"})),
+            Some(&agent),
+        );
+        assert_eq!(status, 200, "{completed}");
+        handoff_id
+    }
+
+    fn exchange(
+        document: &serde_json::Value,
+        method: &str,
+        path: &str,
+        body: Option<&serde_json::Value>,
+        session: Option<&str>,
+    ) -> (u16, serde_json::Value) {
+        let (mut plugin, mut connection, _hint) =
+            ce_transport::connect_invitation(document).unwrap();
+        let headers =
+            session.map(|session| vec![("Authorization".to_string(), format!("Bearer {session}"))]);
+        let result = crate::http_client::http_exchange(
+            connection.as_mut(),
+            method,
+            path,
+            body,
+            headers.as_deref(),
+        )
+        .unwrap();
+        connection.close();
+        plugin.close();
+        result
     }
 }

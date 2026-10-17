@@ -2,7 +2,7 @@
 title: Hosted rooms
 ---
 
-This is a proposal. Hosted room provisioning is not implemented. Room-launch contract version 1, in `website/contracts/room-launch.v1.json`, marks hosted mode `not_implemented` and sets `provider_endpoint` to null. The public site at `website/` must not grow a control that claims a room was created.
+This is a proposal. Hosted room provisioning is not implemented. Room-launch contract version 1, in `website/contracts/room-launch.v1.json`, marks hosted mode `not_implemented` and sets `provider_endpoint` to null. The public site at `website/` must not grow a control that claims a room was created. `ce ui` shows the same gap and will not report a hosted endpoint as ready.
 
 ## Recommendation
 

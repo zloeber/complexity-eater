@@ -12,7 +12,7 @@ Complexity Eater is one binary, `ce`, built from a Cargo workspace. The crates a
 | `ce-core` | Workspace engine, SQLite metadata, markdown regions, skill loading, platform paths |
 | `ce-transport` | Loopback and Tailcat plugins, the connection trait, invitation dialing |
 | `ce-http` | Axum routes, the human page, the session ingress, MCP `2026-07-28` |
-| `ce-cli` | `ce` command, room process, byte HTTP client, stdio MCP dialer |
+| `ce-cli` | `ce` command, room process, local management page, byte HTTP client, stdio MCP dialer |
 
 `ce-core`, `ce-http`, and `ce-protocol` do not name transport vendors. A test walks those source trees and fails if they contain `tailcat`, `libp2p`, `iroh`, or `webrtc`. The CLI may name Tailcat because that is how a person selects the plugin. The transport crate implements it.
 

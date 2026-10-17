@@ -36,6 +36,7 @@ const COMMANDS: &[&str] = &[
     "task-cancel",
     "mcp",
     "remove-participant",
+    "ui",
 ];
 
 pub async fn run() -> i32 {
@@ -74,6 +75,7 @@ async fn dispatch(argv: Vec<String>) -> Result<i32, CommonroomError> {
     let (command, args) = matches.subcommand().unwrap_or(("serve", &matches));
     match command {
         "serve" => serve(args).await,
+        "ui" => management_ui(args).await,
         "mcp" => Ok(run_dialer(
             args.get_one::<String>("invite")
                 .map(String::as_str)
@@ -298,6 +300,27 @@ fn parser() -> Command {
                 .about("End a participant session")
                 .arg(workspace_arg(&workspace))
                 .arg(Arg::new("participant").long("participant").required(true)),
+        )
+        .subcommand(
+            Command::new("ui")
+                .about("Open the local management page")
+                .arg(Arg::new("host").long("host").default_value("127.0.0.1"))
+                .arg(
+                    Arg::new("port")
+                        .long("port")
+                        .value_parser(clap::value_parser!(u16))
+                        .default_value("0")
+                        .help("Loopback port. 0 asks the OS for a free port"),
+                )
+                .arg(
+                    Arg::new("no-browser")
+                        .long("no-browser")
+                        .action(ArgAction::SetTrue)
+                        .help("Do not open a browser"),
+                )
+                .arg(Arg::new("config").long("config").help(
+                    "Connectivity file. Defaults to connectivity.toml in the config directory",
+                )),
         )
 }
 
@@ -913,6 +936,29 @@ fn print_stdout(text: &str) {
         let _ = out.write_all(b"\n");
     }
     let _ = out.flush();
+}
+
+async fn management_ui(args: &clap::ArgMatches) -> Result<i32, CommonroomError> {
+    let host = args
+        .get_one::<String>("host")
+        .map(String::as_str)
+        .unwrap_or("127.0.0.1");
+    let port = *args.get_one::<u16>("port").unwrap_or(&0);
+    let config_path = args
+        .get_one::<String>("config")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| ce_core::config_dir().join("connectivity.toml"));
+    let ui = crate::ui::start_ui(crate::ui::UiOptions {
+        host: host.to_string(),
+        port,
+        config_path,
+        open_browser: !args.get_flag("no-browser"),
+    })
+    .await?;
+    print_stdout(&ui.banner());
+    wait_for_shutdown().await;
+    ui.shutdown().await;
+    Ok(0)
 }
 
 async fn wait_for_shutdown() {

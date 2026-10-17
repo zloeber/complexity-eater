@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Complexity Eater</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1c1915;
+      --muted: #5e574e;
+      --line: #e4ddd2;
+      --paper: #f6f1e8;
+      --card: #fffdf8;
+      --accent: #1f4d3a;
+      --button: #fff;
+      --focus: #1f4d3a;
+      --attention: #8f3d32;
+      --local: #0f6b4c;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --ink: #f3efe6;
+        --muted: #b7aea2;
+        --line: #3a342c;
+        --paper: #161310;
+        --card: #221e1a;
+        --accent: #d7b56a;
+        --button: #2a251f;
+        --focus: #e7c98a;
+        --attention: #e3a299;
+        --local: #8dcea8;
+      }
+    }
+    * { box-sizing: border-box; }
+    :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font: 15px/1.45 "Segoe UI", system-ui, sans-serif;
+    }
+    header, main { width: min(920px, calc(100% - 32px)); margin: 0 auto; }
+    header { padding: 28px 0 8px; }
+    h1 { font: 600 1.6rem/1.2 Georgia, serif; margin: 0; }
+    h2 { font: 600 1.05rem/1.3 Georgia, serif; margin: 0 0 8px; }
+    p { margin: 0 0 8px; }
+    .lede, .meta { color: var(--muted); }
+    nav { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0 4px; }
+    button, input, select {
+      font: inherit;
+      color: var(--ink);
+      background: var(--button);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    button { padding: 7px 12px; cursor: pointer; }
+    button[aria-current="page"] { border-color: var(--accent); }
+    input, select { padding: 7px 10px; width: 100%; }
+    label { display: block; margin: 10px 0; }
+    label span { display: block; margin-bottom: 4px; }
+    main { padding-bottom: 48px; }
+    section[hidden] { display: none; }
+    article {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      margin: 12px 0;
+    }
+    .phase { font-weight: 650; }
+    .phase.local { color: var(--local); }
+    .phase.attention { color: var(--attention); }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .check { display: grid; grid-template-columns: 9rem 6rem 1fr; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
+    .check strong { font-weight: 600; }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: var(--paper);
+      border-radius: 8px;
+      padding: 12px;
+      max-height: 320px;
+      overflow: auto;
+    }
+    .warn { color: var(--attention); }
+    @media (max-width: 640px) {
+      .check { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Complexity Eater</h1>
+    <p class="lede">Local management. This page configures how the instance is reached. It is not the room, and it does not approve proposals.</p>
+    <p id="phase" class="phase" role="status">Loading</p>
+    <p id="phase-detail" class="meta"></p>
+    <nav aria-label="Sections">
+      <button type="button" data-panel="overview" aria-current="page">Overview</button>
+      <button type="button" data-panel="connectivity">Connectivity</button>
+      <button type="button" data-panel="access">Access</button>
+      <button type="button" data-panel="diagnostics">Diagnostics</button>
+      <button type="button" data-panel="settings">Settings</button>
+    </nav>
+  </header>
+  <main>
+    <p id="notice" role="alert"></p>
+
+    <section id="overview">
+      <article>
+        <h2>This machine</h2>
+        <p id="overview-bind"></p>
+        <p id="overview-room"></p>
+        <ul id="overview-warnings"></ul>
+      </article>
+      <article>
+        <h2>What already works without a tunnel</h2>
+        <p>Document review, anchored questions, and session handoff run in the local room. Tailcat is optional. Hosted coordination and a portable offline package are not implemented.</p>
+        <p class="meta">Start a room in another terminal with <code>ce serve notes.md</code>. Agents on this machine use the invitation that command prints.</p>
+      </article>
+    </section>
+
+    <section id="connectivity" hidden>
+      <article>
+        <h2>Where the instance runs</h2>
+        <form id="mode-form">
+          <label><input type="radio" name="mode" value="local" /> Local-only. Agents on this machine. Loopback is not another computer.</label>
+          <label><input type="radio" name="mode" value="hosted" /> Hosted coordination. Unavailable in this version.</label>
+          <label><input type="radio" name="mode" value="remote" /> Self-hosted remote access. Requires an explicit confirmation below.</label>
+          <label>Hosted service URL
+            <input id="hosted-url" name="hosted_url" type="url" autocomplete="off" spellcheck="false" placeholder="https://example.com" />
+          </label>
+          <p class="meta">Saving a URL does not create an account, move the sidecar, or prove the service exists. Hosted room provisioning is not implemented.</p>
+          <fieldset>
+            <legend>Remote adapter</legend>
+            <label><input type="radio" name="adapter" value="none" /> Not configured</label>
+            <label><input type="radio" name="adapter" value="cloudflare" /> Managed tunnel (Cloudflare)</label>
+            <label><input type="radio" name="adapter" value="private" /> Private network (optional Tailcat)</label>
+            <label><input type="radio" name="adapter" value="custom" disabled /> Custom endpoint (unavailable)</label>
+          </fieldset>
+          <div id="cloudflare-fields">
+            <h2>Cloudflare Tunnel</h2>
+            <p id="cloudflared-status" class="meta"></p>
+            <p>Traffic for a quick tunnel goes through Cloudflare. HTTPS on that hostname is not a private network and does not authorize an agent. Workspace access stays an invitation.</p>
+            <p>This page does not install cloudflared, call the Cloudflare API, change DNS, or install an operating-system service. A named tunnel needs a Cloudflare account and a certificate created by <code>cloudflared tunnel login</code> outside this page. Do not paste that certificate or an API token here.</p>
+            <label>Kind
+              <select id="cf-kind" name="kind">
+                <option value="quick">Quick tunnel (trycloudflare.com)</option>
+                <option value="existing">Existing named tunnel</option>
+              </select>
+            </label>
+            <label>Tunnel name
+              <input id="cf-name" name="tunnel_name" autocomplete="off" spellcheck="false" />
+            </label>
+            <label>Hostname you assigned
+              <input id="cf-host" name="hostname" autocomplete="off" spellcheck="false" placeholder="room.example.com" />
+            </label>
+            <label>Session ingress port
+              <input id="cf-port" name="origin_port" inputmode="numeric" />
+            </label>
+            <p class="meta" id="recorded-port"></p>
+            <p>The origin is always <code>http://127.0.0.1</code> on that port. The management page is a different port and is not published. Point this at the room's session ingress, then start the room before starting the tunnel.</p>
+            <ol>
+              <li>Install <code>cloudflared</code> from Cloudflare's documented downloads. Come back and reload.</li>
+              <li>For a named tunnel, run <code>cloudflared tunnel login</code>, <code>cloudflared tunnel create NAME</code>, and <code>cloudflared tunnel route dns NAME HOST</code> yourself. Those commands can create account resources.</li>
+              <li>Optional Access policy: configure it in the Cloudflare dashboard. This application ignores <code>Cf-Access-Jwt-Assertion</code> and <code>Cf-Access-Authenticated-User-Email</code>.</li>
+              <li>Confirm, save, then start. The process is a child of <code>ce ui</code>. Stop ends that child. Disable also clears the local preference.</li>
+            </ol>
+            <p>After disable, a named tunnel, its DNS record, and the cloudflared login certificate remain in your Cloudflare account until you delete them there. The markdown file and sidecar stay here either way. Quick-tunnel hostnames stop working when the child stops. Plan limits and pricing are Cloudflare's, not this application's.</p>
+          </div>
+          <div id="private-fields">
+            <h2>Private network</h2>
+            <p id="private-status" class="meta"></p>
+            <p>Tailcat is optional. This page does not install or start it. A missing plugin is <code>transport_unavailable</code>. The room still refuses a non-loopback bind. Publish with <code>ce serve notes.md --tailcat</code> after you install the plugin. A connected plugin is not a participant.</p>
+          </div>
+          <label><input id="confirm" type="checkbox" /> I understand this can expose the session ingress beyond this machine, and that exposure is not workspace authorization.</label>
+          <div class="row">
+            <button type="submit">Save</button>
+            <button type="button" id="test">Test</button>
+            <button type="button" id="start">Start tunnel</button>
+            <button type="button" id="stop">Stop tunnel</button>
+            <button type="button" id="reconnect">Reconnect</button>
+            <button type="button" id="disable">Disable remote access</button>
+          </div>
+        </form>
+        <p id="public-url" class="warn"></p>
+        <div id="checks"></div>
+      </article>
+    </section>
+
+    <section id="access" hidden>
+      <article>
+        <h2>Invitations</h2>
+        <p>A tunnel, a plugin, or a URL does not join a workspace. Create a one-use invitation with the default agent capabilities. It cannot approve. Revoke it here, or end a participant from the room.</p>
+        <p class="meta">The invitation string is shown once and is omitted from diagnostics.</p>
+        <div class="row">
+          <button type="button" id="invite">Create invitation</button>
+          <button type="button" id="reload-access">Reload</button>
+        </div>
+        <p id="new-invite"></p>
+        <ul id="invites"></ul>
+      </article>
+    </section>
+
+    <section id="diagnostics" hidden>
+      <article>
+        <h2>Redacted report</h2>
+        <p>Copy this into a bug report. It leaves out invitation secrets, session ids, bearer tokens, and quick-tunnel hostnames.</p>
+        <div class="row"><button type="button" id="copy">Copy</button></div>
+        <pre id="report" tabindex="0"></pre>
+      </article>
+    </section>
+
+    <section id="settings" hidden>
+      <article>
+        <h2>Workspace file</h2>
+        <form id="settings-form">
+          <label>Absolute path to the markdown file
+            <input id="workspace" name="workspace" autocomplete="off" spellcheck="false" />
+          </label>
+          <button type="submit">Save path</button>
+        </form>
+        <p class="meta">Metadata stays beside that file as <code>&lt;file&gt;.commonroom.db</code>. This page does not move it. Preferences for this screen are stored in the local connectivity file, mode 0600 on Unix, with no credentials.</p>
+        <p id="settings-path" class="meta"></p>
+      </article>
+    </section>
+  </main>
+  <script>
+    const notice = document.querySelector("#notice");
+    const panels = ["overview", "connectivity", "access", "diagnostics", "settings"];
+    document.querySelectorAll("nav button").forEach((button) => {
+      button.addEventListener("click", () => show(button.dataset.panel));
+    });
+    function show(id) {
+      panels.forEach((panel) => {
+        document.querySelector("#" + panel).hidden = panel !== id;
+      });
+      document.querySelectorAll("nav button").forEach((button) => {
+        button.setAttribute("aria-current", button.dataset.panel === id ? "page" : "false");
+      });
+      if (id === "diagnostics") loadReport();
+      if (id === "access") loadAccess();
+    }
+    async function api(path, body) {
+      const response = await fetch(path, {
+        method: body ? "POST" : "GET",
+        credentials: "same-origin",
+        headers: { "accept": "application/json", "content-type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        const error = new Error(payload.message || "request failed");
+        error.payload = payload;
+        throw error;
+      }
+      return payload;
+    }
+    function fail(error) {
+      notice.textContent = error.message || "request failed";
+    }
+    function formValue(name) {
+      const selected = document.querySelector("[name='" + name + "']:checked");
+      return selected ? selected.value : "";
+    }
+    function payload() {
+      return {
+        confirm: document.querySelector("#confirm").checked,
+        mode: formValue("mode") || "local",
+        adapter: formValue("adapter") || "none",
+        hosted_url: document.querySelector("#hosted-url").value.trim(),
+        workspace: document.querySelector("#workspace").value.trim(),
+        cloudflare: {
+          enabled: formValue("adapter") === "cloudflare" && document.querySelector("#confirm").checked,
+          kind: document.querySelector("#cf-kind").value,
+          tunnel_name: document.querySelector("#cf-name").value.trim(),
+          hostname: document.querySelector("#cf-host").value.trim(),
+          origin_port: Number(document.querySelector("#cf-port").value || "0")
+        },
+        private_network: {
+          enabled: formValue("adapter") === "private" && document.querySelector("#confirm").checked
+        }
+      };
+    }
+    function fill(data) {
+      const phase = document.querySelector("#phase");
+      phase.textContent = data.phase_label || data.phase || "";
+      phase.className = "phase " + (data.tone || "");
+      document.querySelector("#phase-detail").textContent = data.phase_detail || "";
+      const config = data.config || {};
+      const cloudflare = config.cloudflare || {};
+      document.querySelectorAll("[name='mode']").forEach((input) => {
+        input.checked = input.value === (config.mode || "local");
+      });
+      document.querySelectorAll("[name='adapter']").forEach((input) => {
+        input.checked = input.value === (config.adapter || "none");
+      });
+      document.querySelector("#hosted-url").value = config.hosted_url || "";
+      document.querySelector("#workspace").value = config.workspace || "";
+      document.querySelector("#cf-kind").value = cloudflare.kind || "quick";
+      document.querySelector("#cf-name").value = cloudflare.tunnel_name || "";
+      document.querySelector("#cf-host").value = cloudflare.hostname || "";
+      document.querySelector("#cf-port").value = cloudflare.origin_port || "";
+      const installed = data.cloudflared || {};
+      document.querySelector("#cloudflared-status").textContent = installed.installed
+        ? "cloudflared " + (installed.version || "is installed") + ". " + (data.tunnel_process || "")
+        : "cloudflared was not found on PATH. Install it yourself. This page will not download it.";
+      document.querySelector("#private-status").textContent = data.private_installed
+        ? "The private-network executable is on PATH. This page has not started it."
+        : "The private-network executable was not found. Nothing was installed.";
+      document.querySelector("#recorded-port").textContent = data.recorded_ingress_port
+        ? "Last recorded loopback ingress port: " + data.recorded_ingress_port + ". Confirm the room is still listening before you publish it."
+        : "No loopback ingress port is recorded for the workspace file.";
+      const url = document.querySelector("#public-url");
+      url.textContent = data.public_url
+        ? "Public hostname: " + data.public_url + ". Anyone who learns it can open a connection to the ingress. It is not an invitation, and diagnostics redact it."
+        : "";
+      const warnings = document.querySelector("#overview-warnings");
+      warnings.replaceChildren();
+      (data.warnings || []).forEach((item) => {
+        const li = document.createElement("li");
+        li.textContent = item;
+        warnings.appendChild(li);
+      });
+      document.querySelector("#overview-bind").textContent = data.management_bind || "";
+      document.querySelector("#overview-room").textContent = data.room_detail || "";
+      document.querySelector("#settings-path").textContent = data.config_file || "";
+      renderChecks(data.checks || []);
+    }
+    function renderChecks(checks) {
+      const root = document.querySelector("#checks");
+      root.replaceChildren();
+      checks.forEach((check) => {
+        const row = document.createElement("div");
+        row.className = "check";
+        const name = document.createElement("span");
+        name.textContent = check.id;
+        const state = document.createElement("strong");
+        state.textContent = check.state;
+        const detail = document.createElement("span");
+        detail.textContent = check.detail;
+        row.append(name, state, detail);
+        root.appendChild(row);
+      });
+    }
+    async function refresh() {
+      notice.textContent = "";
+      try {
+        fill(await api("/api/overview"));
+      } catch (error) {
+        fail(error);
+      }
+    }
+    document.querySelector("#mode-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        fill(await api("/api/connectivity", payload()));
+        notice.textContent = "Saved.";
+      } catch (error) {
+        fail(error);
+      }
+    });
+    document.querySelector("#test").addEventListener("click", async () => {
+      try {
+        const data = await api("/api/connectivity/test", { confirm: true });
+        fill(data);
+        renderChecks(data.checks || []);
+      } catch (error) {
+        fail(error);
+      }
+    });
+    async function tunnel(path, force) {
+      try {
+        const confirmed = force || document.querySelector("#confirm").checked;
+        fill(await api(path, { confirm: confirmed }));
+      } catch (error) {
+        fail(error);
+      }
+    }
+    document.querySelector("#start").addEventListener("click", () => tunnel("/api/tunnel/start", false));
+    document.querySelector("#stop").addEventListener("click", () => tunnel("/api/tunnel/stop", true));
+    document.querySelector("#reconnect").addEventListener("click", () => tunnel("/api/tunnel/reconnect", false));
+    document.querySelector("#disable").addEventListener("click", () => tunnel("/api/connectivity/disable", true));
+    document.querySelector("#settings-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        fill(await api("/api/settings", { workspace: document.querySelector("#workspace").value.trim() }));
+        notice.textContent = "Workspace path saved.";
+      } catch (error) {
+        fail(error);
+      }
+    });
+    async function loadAccess() {
+      try {
+        const data = await api("/api/access");
+        const list = document.querySelector("#invites");
+        list.replaceChildren();
+        (data.invites || []).forEach((invite) => {
+          const item = document.createElement("li");
+          item.textContent = (invite.invite_id || "invitation") + " " + (invite.capabilities || []).join(", ")
+            + (invite.revoked_at ? " revoked" : " active") + " uses " + invite.used_count;
+          if (!invite.revoked_at && invite.invite_id) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = "Revoke";
+            button.addEventListener("click", async () => {
+              try {
+                await api("/api/access/revoke", { confirm: true, invite_id: invite.invite_id });
+                await loadAccess();
+              } catch (error) {
+                fail(error);
+              }
+            });
+            item.append(" ", button);
+          }
+          list.appendChild(item);
+        });
+        if (!(data.invites || []).length) {
+          const item = document.createElement("li");
+          item.textContent = data.detail || "No invitations.";
+          list.appendChild(item);
+        }
+      } catch (error) {
+        fail(error);
+      }
+    }
+    document.querySelector("#reload-access").addEventListener("click", loadAccess);
+    document.querySelector("#invite").addEventListener("click", async () => {
+      try {
+        const data = await api("/api/access/invite", { confirm: true });
+        const slot = document.querySelector("#new-invite");
+        slot.textContent = "";
+        const code = document.createElement("code");
+        code.textContent = data.uri || "";
+        slot.append("Shown once. Default capabilities only. ", code);
+        await loadAccess();
+      } catch (error) {
+        fail(error);
+      }
+    });
+    async function loadReport() {
+      try {
+        const data = await api("/api/diagnostics");
+        document.querySelector("#report").textContent = data.text || "";
+      } catch (error) {
+        fail(error);
+      }
+    }
+    document.querySelector("#copy").addEventListener("click", async () => {
+      const text = document.querySelector("#report").textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+        notice.textContent = "Copied the redacted report.";
+      } catch (error) {
+        notice.textContent = "Select the report and copy it manually.";
+      }
+    });
+    refresh();
+  </script>
+</body>
+</html>

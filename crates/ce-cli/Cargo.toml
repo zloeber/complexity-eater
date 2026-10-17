@@ -25,6 +25,7 @@ tracing-subscriber.workspace = true
 sha2.workspace = true
 hex.workspace = true
 toml.workspace = true
+regex.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
