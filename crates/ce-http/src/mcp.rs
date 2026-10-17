@@ -30,6 +30,10 @@ const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_PARAMS: i64 = -32602;
 const APPLICATION_ERROR: i64 = -32000;
 const TASKS_EXTENSION: &str = "io.modelcontextprotocol/tasks";
+const UI_EXTENSION: &str = "io.modelcontextprotocol/ui";
+const UI_MIME: &str = "text/html;profile=mcp-app";
+const REVIEW_APP_URI: &str = "ui://commonroom/review/1";
+const REVIEW_APP_HTML: &str = include_str!("review_app.html");
 
 struct Tool {
     name: &'static str,
@@ -124,7 +128,7 @@ pub fn handle_mcp(
     };
     let result = match method {
         "server/discover" => Ok(discover(engine)),
-        "tools/list" => Ok(tools_list(session.as_ref())),
+        "tools/list" => Ok(tools_list(session.as_ref(), &params)),
         "tools/call" => tools_call(engine, session.as_ref(), &params),
         "prompts/list" => Ok(prompts_list()),
         "prompts/get" => prompts_get(&params),
@@ -258,7 +262,8 @@ fn discover(engine: &WorkspaceEngine) -> Value {
             "prompts": {},
             "extensions": {
                 "io.modelcontextprotocol/skills": {},
-                "io.modelcontextprotocol/tasks": {}
+                "io.modelcontextprotocol/tasks": {},
+                "io.modelcontextprotocol/ui": {"mimeTypes": [UI_MIME]}
             }
         },
         "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "Commonroom", "version": env!("CARGO_PKG_VERSION")}},
@@ -519,6 +524,18 @@ fn tools() -> Vec<Tool> {
             "Mark the review complete or returned. Reopening it requires admin.",
             json!({"type": "object", "properties": {"status": {"type": "string", "enum": ["open", "complete", "returned"]}}, "required": ["status"]}),
         ),
+        tool(
+            "review_open",
+            "read",
+            "Open a review. The result is a short brief. The document body is a later read. An optional note is shown to the person and is not stored.",
+            json!({"type": "object", "properties": {"handoff_id": {"type": "string"}, "note": {"type": "string", "description": "Shown beside the document. Not stored and not a decision."}}}),
+        ),
+        tool(
+            "review_section",
+            "read",
+            "Read one bounded region for the review view. The model-visible text is a pointer.",
+            json!({"type": "object", "properties": {"section": {"type": "string"}, "offset": {"type": "integer"}, "max_bytes": {"type": "integer"}, "max_lines": {"type": "integer"}}}),
+        ),
     ]
 }
 
@@ -552,16 +569,34 @@ fn tool_allowed(granted: &[String], item: &Tool) -> bool {
         || item.also.iter().any(|cap| has_capability(granted, cap))
 }
 
-fn tools_list(session: Option<&Session>) -> Value {
+fn tools_list(session: Option<&Session>, params: &Value) -> Value {
     let granted = session
         .map(|session| session.capabilities.clone())
         .unwrap_or_default();
+    let ui = client_has_ui(params);
     let tools = tools()
         .into_iter()
         .filter(|item| tool_allowed(&granted, item))
-        .map(|item| json!({"name": item.name, "description": item.description, "inputSchema": item.schema}))
+        .map(|item| {
+            let mut value = json!({"name": item.name, "description": item.description, "inputSchema": item.schema});
+            if let Some(meta) = tool_ui(item.name, ui) {
+                value["_meta"] = json!({"ui": meta});
+            }
+            value
+        })
         .collect::<Vec<_>>();
     json!({"resultType": "complete", "tools": tools, "ttlMs": 0, "cacheScope": "private"})
+}
+
+fn tool_ui(name: &str, ui: bool) -> Option<Value> {
+    match name {
+        "review_open" if ui => Some(json!({
+            "resourceUri": REVIEW_APP_URI,
+            "visibility": ["model", "app"]
+        })),
+        "review_section" => Some(json!({"visibility": ["app"]})),
+        _ => None,
+    }
 }
 
 fn tools_call(
@@ -594,6 +629,18 @@ fn tools_call(
         return Ok(tool_error(invalid_request(
             "tool arguments must be an object",
         )));
+    }
+    if name == "review_open" {
+        return match open_review(engine, &arguments, client_has_ui(params)) {
+            Ok((text, structured)) => Ok(complete_tool(&text, structured)),
+            Err(err) => Ok(tool_error(err)),
+        };
+    }
+    if name == "review_section" {
+        return match read_review_section(engine, &arguments) {
+            Ok((text, structured)) => Ok(complete_tool(&text, Some(structured))),
+            Err(err) => Ok(tool_error(err)),
+        };
     }
     if name == "handoff_create" && client_has_tasks(params) {
         return match create_handoff(engine, session, &arguments) {
@@ -796,6 +843,142 @@ fn required_i64(args: &Value, key: &str) -> Result<i64, CommonroomError> {
         .ok_or_else(|| invalid_request(format!("{key} is required")))
 }
 
+fn complete_tool(text: &str, structured: Option<Value>) -> Value {
+    let mut result = json!({
+        "resultType": "complete",
+        "content": [{"type": "text", "text": text}],
+        "isError": false
+    });
+    if let Some(structured) = structured {
+        result["structuredContent"] = structured;
+    }
+    result
+}
+
+fn open_review(
+    engine: &WorkspaceEngine,
+    args: &Value,
+    ui: bool,
+) -> Result<(String, Option<Value>), CommonroomError> {
+    let version = engine.status()?.version;
+    let review = engine.review_context()?;
+    let page = engine.regions_page(Some(6), None, None, Some(40))?;
+    let sections: Vec<Value> = page
+        .regions
+        .iter()
+        .map(|region| json!({"path": region.path, "title": region.title}))
+        .collect();
+    let questions: Vec<Value> = review
+        .review
+        .questions
+        .iter()
+        .map(|question| {
+            json!({
+                "question_id": question.question_id,
+                "status": question.status,
+                "region": question.anchor.region
+            })
+        })
+        .collect();
+    let proposals: Vec<Value> = review
+        .proposals
+        .iter()
+        .map(|proposal| {
+            json!({
+                "proposal_id": proposal.proposal_id,
+                "status": proposal.status,
+                "base_version": proposal.base_version,
+                "target": proposal.target
+            })
+        })
+        .collect();
+    let pending = proposals
+        .iter()
+        .filter(|item| {
+            let status = item.get("status").and_then(Value::as_str);
+            status == Some("pending") || status == Some("approved")
+        })
+        .count();
+    let requested = args
+        .get("handoff_id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty());
+    let handoff = match requested {
+        Some(id) => match engine.get_handoff(id) {
+            Ok(item) => Some(json!({"handoff_id": item.handoff_id, "status": item.status})),
+            Err(_) => None,
+        },
+        None => None,
+    };
+    let titles = page
+        .regions
+        .iter()
+        .map(|region| region.title.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut lines = vec![
+        format!("version {version}"),
+        format!("sections: {titles}"),
+        format!("open questions: {}", review.review.counts.open),
+        format!("pending proposals: {pending}"),
+    ];
+    if let Some(id) = requested {
+        match &handoff {
+            Some(item) => lines.push(format!(
+                "handoff {} {}",
+                item.get("handoff_id").and_then(Value::as_str).unwrap_or(id),
+                item.get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown")
+            )),
+            None => lines.push("handoff: not_found".into()),
+        }
+    }
+    let structured = ui.then(|| {
+        json!({
+            "version": version,
+            "sections": sections,
+            "open_questions": review.review.counts.open,
+            "questions": questions,
+            "proposals": proposals,
+            "pending_proposals": pending,
+            "handoff": handoff
+        })
+    });
+    Ok((lines.join("\n"), structured))
+}
+
+fn read_review_section(
+    engine: &WorkspaceEngine,
+    args: &Value,
+) -> Result<(String, Value), CommonroomError> {
+    let max_bytes = args
+        .get("max_bytes")
+        .and_then(Value::as_i64)
+        .unwrap_or(8_192);
+    let read = engine.read_with_offset(
+        args.get("section").and_then(Value::as_str),
+        args.get("max_lines").and_then(Value::as_i64),
+        Some(max_bytes),
+        args.get("offset").and_then(Value::as_i64),
+    )?;
+    let label = read.section.clone().unwrap_or_else(|| "document".into());
+    let text = format!(
+        "version {} section {label} bytes {} truncated {}",
+        read.version,
+        read.content.len(),
+        read.truncated
+    );
+    let structured = json!({
+        "version": read.version,
+        "section": read.section,
+        "content": read.content,
+        "truncated": read.truncated,
+        "next_offset": read.next_offset
+    });
+    Ok((text, structured))
+}
+
 fn tool_error(err: CommonroomError) -> Value {
     json!({
         "resultType": "complete",
@@ -838,6 +1021,25 @@ fn resources_read(
     params: &Value,
 ) -> Result<Value, RpcError> {
     let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
+    if uri == REVIEW_APP_URI {
+        let Some(session) = session else {
+            return Err(rpc(INVALID_PARAMS, "session required", 400));
+        };
+        if !has_capability(&session.capabilities, "read") {
+            return Err(rpc(APPLICATION_ERROR, "permission_denied", 403));
+        }
+        return Ok(json!({
+            "resultType": "complete",
+            "contents": [{
+                "uri": REVIEW_APP_URI,
+                "mimeType": UI_MIME,
+                "text": REVIEW_APP_HTML,
+                "_meta": {"ui": {"prefersBorder": true}}
+            }],
+            "ttlMs": 0,
+            "cacheScope": "private"
+        }));
+    }
     if uri == SKILL_URI {
         return Ok(json!({
             "resultType": "complete",
@@ -1031,6 +1233,17 @@ fn listen_key(id: &Value) -> String {
         Value::Number(value) => format!("n:{value}"),
         other => format!("j:{other}"),
     }
+}
+
+fn client_has_ui(params: &Value) -> bool {
+    params
+        .get("_meta")
+        .and_then(|meta| meta.get("io.modelcontextprotocol/clientCapabilities"))
+        .and_then(|caps| caps.get("extensions"))
+        .and_then(|extensions| extensions.get(UI_EXTENSION))
+        .and_then(|ui| ui.get("mimeTypes"))
+        .and_then(Value::as_array)
+        .is_some_and(|types| types.iter().any(|item| item.as_str() == Some(UI_MIME)))
 }
 
 fn client_has_tasks(params: &Value) -> bool {

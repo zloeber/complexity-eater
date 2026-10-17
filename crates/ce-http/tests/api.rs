@@ -1304,6 +1304,333 @@ async fn provider_identity_headers_do_not_authenticate() {
     );
 }
 
+fn ui_meta(mime: Option<&str>) -> serde_json::Value {
+    let mut meta = json!({"io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION});
+    if let Some(mime) = mime {
+        meta["io.modelcontextprotocol/clientCapabilities"] = json!({
+            "extensions": {
+                "io.modelcontextprotocol/ui": {"mimeTypes": [mime]}
+            }
+        });
+    }
+    meta
+}
+
+fn tool_named<'a>(listed: &'a serde_json::Value, name: &str) -> &'a serde_json::Value {
+    listed["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["name"] == name)
+        .unwrap_or_else(|| panic!("missing tool {name}"))
+}
+
+#[tokio::test]
+async fn review_app_is_optional_and_does_not_write_the_file() {
+    let doc = "# Plan\n\n## Decisions\n\nSECRET-BODY-MARKER <script>alert(1)</script>\n";
+    let (dir, engine) = engine(doc);
+    let path = dir.0.join("workspace.md");
+    let reader = engine
+        .join(
+            "agent",
+            "reader",
+            Some(vec!["read".into(), "propose".into()]),
+            None,
+            "local",
+            None,
+        )
+        .unwrap();
+    let writer = engine
+        .join(
+            "agent",
+            "writer",
+            Some(vec!["propose".into()]),
+            None,
+            "local",
+            None,
+        )
+        .unwrap();
+    let maker = engine
+        .join(
+            "agent",
+            "maker",
+            Some(vec!["read".into(), "propose".into(), "commit".into()]),
+            None,
+            "local",
+            None,
+        )
+        .unwrap();
+    let proposal = engine
+        .propose(
+            &reader.participant_id,
+            "workspace",
+            99,
+            "late",
+            json!({"content": "# Plan\n\nchanged\n", "mode": "document"}),
+            None,
+        )
+        .unwrap();
+    engine
+        .review_proposal(&proposal.proposal_id, &maker.participant_id, true, None)
+        .unwrap();
+    let handoff = engine
+        .create_handoff(
+            &maker.participant_id,
+            ce_core::NewHandoff {
+                summary: "review the plan",
+                constraints: "",
+                artifact_refs: &[],
+                idempotency_key: Some("review-1"),
+                correlation_id: None,
+            },
+        )
+        .unwrap();
+    let base = serve(create_router(engine, Access::Session, None)).await;
+    let client = client();
+
+    let discovered = mcp(
+        &client,
+        &base,
+        &reader.session_id,
+        "server/discover",
+        None,
+        json!({"_meta": ui_meta(None)}),
+    )
+    .await;
+    let ui = &discovered["result"]["capabilities"]["extensions"]["io.modelcontextprotocol/ui"];
+    assert_eq!(ui["mimeTypes"][0], "text/html;profile=mcp-app");
+
+    let catalog = mcp(
+        &client,
+        &base,
+        &reader.session_id,
+        "resources/list",
+        None,
+        json!({"_meta": ui_meta(Some("text/html;profile=mcp-app"))}),
+    )
+    .await;
+    assert!(!catalog.to_string().contains("ui://"));
+
+    let plain = mcp(
+        &client,
+        &base,
+        &reader.session_id,
+        "tools/list",
+        None,
+        json!({"_meta": ui_meta(None)}),
+    )
+    .await;
+    let opened = tool_named(&plain, "review_open");
+    assert!(opened.get("_meta").is_none(), "{opened}");
+    assert_eq!(
+        tool_named(&plain, "review_section")["_meta"]["ui"]["visibility"],
+        json!(["app"])
+    );
+
+    let bare = mcp(
+        &client,
+        &base,
+        &reader.session_id,
+        "tools/list",
+        None,
+        json!({
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION,
+                "io.modelcontextprotocol/clientCapabilities": {
+                    "extensions": {"io.modelcontextprotocol/ui": {}}
+                }
+            }
+        }),
+    )
+    .await;
+    assert!(tool_named(&bare, "review_open").get("_meta").is_none());
+
+    let listed = mcp(
+        &client,
+        &base,
+        &reader.session_id,
+        "tools/list",
+        None,
+        json!({"_meta": ui_meta(Some("text/html;profile=mcp-app"))}),
+    )
+    .await;
+    assert_eq!(
+        tool_named(&listed, "review_open")["_meta"]["ui"]["resourceUri"],
+        "ui://commonroom/review/1"
+    );
+
+    let denied = mcp(
+        &client,
+        &base,
+        &writer.session_id,
+        "resources/read",
+        Some("ui://commonroom/review/1"),
+        json!({
+            "uri": "ui://commonroom/review/1",
+            "_meta": ui_meta(Some("text/html;profile=mcp-app"))
+        }),
+    )
+    .await;
+    assert_eq!(denied["error"]["code"], -32000);
+
+    let resource = mcp(
+        &client,
+        &base,
+        &reader.session_id,
+        "resources/read",
+        Some("ui://commonroom/review/1"),
+        json!({
+            "uri": "ui://commonroom/review/1",
+            "_meta": ui_meta(Some("text/html;profile=mcp-app"))
+        }),
+    )
+    .await;
+    let page = resource["result"]["contents"][0]["text"].as_str().unwrap();
+    assert_eq!(
+        resource["result"]["contents"][0]["mimeType"],
+        "text/html;profile=mcp-app"
+    );
+    assert_eq!(resource["result"]["ttlMs"], 0);
+    assert_eq!(
+        resource["result"]["contents"][0]["_meta"]["ui"]["prefersBorder"],
+        true
+    );
+    assert!(!page.contains("http:") && !page.contains("https:"));
+    assert!(!page.contains("innerHTML") && !page.contains("fetch("));
+    assert!(page.contains("textContent"));
+    assert!(page.contains("ui/initialize"));
+    assert!(page.contains("ui/notifications/initialized"));
+    assert!(!resource.to_string().contains("connectDomains"));
+
+    let brief = mcp(
+        &client,
+        &base,
+        &reader.session_id,
+        "tools/call",
+        Some("review_open"),
+        json!({
+            "name": "review_open",
+            "arguments": {},
+            "_meta": ui_meta(None)
+        }),
+    )
+    .await;
+    let text = brief["result"]["content"][0]["text"].as_str().unwrap();
+    assert_eq!(brief["result"]["isError"], false, "{brief}");
+    assert!(text.contains("Decisions"), "{text}");
+    assert!(!text.contains("SECRET-BODY-MARKER"), "{text}");
+    assert!(brief["result"].get("structuredContent").is_none());
+
+    let rich = mcp(
+        &client,
+        &base,
+        &reader.session_id,
+        "tools/call",
+        Some("review_open"),
+        json!({
+            "name": "review_open",
+            "arguments": {"handoff_id": handoff.handoff.handoff_id, "note": "Agent thinks we should ship"},
+            "_meta": ui_meta(Some("text/html;profile=mcp-app"))
+        }),
+    )
+    .await;
+    let rich_text = rich["result"]["content"][0]["text"].as_str().unwrap();
+    let structured = &rich["result"]["structuredContent"];
+    assert!(!rich_text.contains("SECRET-BODY-MARKER"), "{rich_text}");
+    assert!(
+        !rich_text.contains("Agent thinks we should ship"),
+        "{rich_text}"
+    );
+    assert!(rich_text.contains("open"), "{rich_text}");
+    assert!(!structured.to_string().contains("SECRET-BODY-MARKER"));
+    assert!(structured["sections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["title"] == "Decisions"));
+    assert_eq!(
+        structured["handoff"]["handoff_id"],
+        handoff.handoff.handoff_id
+    );
+
+    let missing = mcp(
+        &client,
+        &base,
+        &reader.session_id,
+        "tools/call",
+        Some("review_open"),
+        json!({
+            "name": "review_open",
+            "arguments": {"handoff_id": "missing-handoff"},
+            "_meta": ui_meta(Some("text/html;profile=mcp-app"))
+        }),
+    )
+    .await;
+    assert_eq!(missing["result"]["isError"], false, "{missing}");
+    assert!(missing["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("not_found"));
+
+    let hidden = mcp(
+        &client,
+        &base,
+        &writer.session_id,
+        "tools/call",
+        Some("review_section"),
+        json!({
+            "name": "review_section",
+            "arguments": {},
+            "_meta": ui_meta(Some("text/html;profile=mcp-app"))
+        }),
+    )
+    .await;
+    assert_eq!(hidden["result"]["isError"], true, "{hidden}");
+    assert!(hidden["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("permission_denied"));
+
+    let section = mcp(
+        &client,
+        &base,
+        &reader.session_id,
+        "tools/call",
+        Some("review_section"),
+        json!({
+            "name": "review_section",
+            "arguments": {"max_bytes": 8192},
+            "_meta": ui_meta(None)
+        }),
+    )
+    .await;
+    let pointer = section["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(!pointer.contains("SECRET-BODY-MARKER"), "{pointer}");
+    assert!(section["result"]["structuredContent"]["content"]
+        .as_str()
+        .unwrap()
+        .contains("SECRET-BODY-MARKER"));
+
+    let stale = mcp(
+        &client,
+        &base,
+        &maker.session_id,
+        "tools/call",
+        Some("workspace_commit"),
+        json!({
+            "name": "workspace_commit",
+            "arguments": {"proposal_id": proposal.proposal_id},
+            "_meta": ui_meta(None)
+        }),
+    )
+    .await;
+    assert!(stale["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("stale_version"));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), doc);
+}
+
 fn collect_listen(url: String, bearer: String, body: serde_json::Value) -> Arc<Mutex<String>> {
     let buf = Arc::new(Mutex::new(String::new()));
     let shared = Arc::clone(&buf);

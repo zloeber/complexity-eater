@@ -10,9 +10,11 @@ edges:
     condition: when the engine, sidecar, or page boundary is unclear
   - target: proposal-lifecycle.md
     condition: when the follow-up is a document change rather than an answer
+  - target: mcp-apps.md
+    condition: when the same review is opened inside an MCP Apps host
   - target: INDEX.md
     condition: when this pattern needs to be updated or cross-referenced
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 ---
 
 # Review canvas

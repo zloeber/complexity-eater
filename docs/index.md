@@ -30,6 +30,7 @@ The [system diagram](architecture/diagram.md) shows the room process, the two li
 
 * [Architecture](architecture/overview.md)
 * [Review canvas](architecture/review.md)
+* [MCP Apps review](architecture/mcp-apps.md)
 * [Workspace events](architecture/events.md)
 * [Tasks and handoffs](architecture/tasks.md)
 * [Protocol](protocol/compatibility.md)

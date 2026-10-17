@@ -102,22 +102,29 @@ impl TunnelProcess {
                 self.log.lock().expect("tunnel log").exit_code = status.code();
             }
         }
-        for reader in self.readers.drain(..) {
-            let _ = reader.join();
-        }
+        self.reap_readers();
     }
 
     pub fn alive(&mut self) -> bool {
-        let Some(child) = self.child.as_mut() else {
-            return false;
+        let status = match self.child.as_mut() {
+            Some(child) => child.try_wait(),
+            None => return false,
         };
-        match child.try_wait() {
+        match status {
             Ok(Some(status)) => {
                 self.log.lock().expect("tunnel log").exit_code = status.code();
+                // The child can exit before the reader threads copy the last lines.
+                self.reap_readers();
                 false
             }
             Ok(None) => true,
             Err(_) => false,
+        }
+    }
+
+    fn reap_readers(&mut self) {
+        for reader in self.readers.drain(..) {
+            let _ = reader.join();
         }
     }
 

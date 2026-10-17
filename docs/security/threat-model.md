@@ -51,6 +51,7 @@ Cloudflare Tunnel, when started from that page, is a `cloudflared` child process
 * Core crates forbidden from naming transport vendors.
 * Session files written with mode `0600` under a `0700` directory on Unix.
 * MCP tools filtered by capability. `workspace_review` is absent from a default agent tool list.
+* `review_open` omits the document body from the model-visible brief. `review_section` still requires `read` when a host ignores `visibility: ["app"]`. The UI template has no external origins. A stale approved proposal returns `stale_version` and leaves the markdown file unchanged.
 
 Header mismatch, oversized `Content-Length` (413 `limit_exceeded`), and the per-bearer rate limit are implemented in the HTTP adapter. They do not yet have a dedicated test.
 
