@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.45 system-ui, sans-serif; margin: 16px; }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  h2 { font-size: 14px; margin: 16px 0 6px; }
+  section { margin-bottom: 16px; }
+  pre, p.note { white-space: pre-wrap; margin: 0; }
+  button, textarea, input { font: inherit; }
+  textarea, input { width: 100%; box-sizing: border-box; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
+</style>
+</head>
+<body>
+  <h1>Review</h1>
+  <p id="status"></p>
+  <p id="brief"></p>
+  <section>
+    <h2>Document</h2>
+    <p>Original markdown. An agent note is not part of this text.</p>
+    <div id="sections" class="row"></div>
+    <pre id="document"></pre>
+  </section>
+  <section>
+    <h2>Agent note</h2>
+    <p>This is the agent's input for this call. It is not stored and it is not a decision.</p>
+    <pre id="note"></pre>
+  </section>
+  <section>
+    <h2>Your response</h2>
+    <p>Nothing here is sent until you use a submit button. Submit does not change the markdown file.</p>
+    <label>Question id <input id="question"></label>
+    <label>Answer <textarea id="answer" rows="3"></textarea></label>
+    <button id="send-answer" type="button">Submit answer</button>
+    <label>Comment <textarea id="comment" rows="3"></textarea></label>
+    <button id="send-comment" type="button">Submit comment</button>
+    <label>Clarification <textarea id="ask" rows="3"></textarea></label>
+    <button id="send-ask" type="button">Submit clarification</button>
+    <pre id="result"></pre>
+  </section>
+  <section>
+    <h2>Proposals</h2>
+    <p>These are proposed changes and their base versions. They are not applied.</p>
+    <div id="proposals"></div>
+    <p id="handoff"></p>
+  </section>
+<script>
+(function () {
+  var nextId = 1;
+  var pending = new Map();
+
+  function sendRequest(method, params) {
+    var id = nextId++;
+    window.parent.postMessage({ jsonrpc: "2.0", id: id, method: method, params: params }, "*");
+    return new Promise(function (resolve, reject) {
+      pending.set(id, { resolve: resolve, reject: reject });
+    });
+  }
+
+  function sendNotification(method, params) {
+    window.parent.postMessage({ jsonrpc: "2.0", method: method, params: params }, "*");
+  }
+
+  function setText(id, value) {
+    document.getElementById(id).textContent = value == null ? "" : String(value);
+  }
+
+  function showBrief(result) {
+    var data = (result && result.structuredContent) || {};
+    var text = result && result.content && result.content[0] && result.content[0].text;
+    if (text) setText("brief", text);
+    var sections = document.getElementById("sections");
+    sections.textContent = "";
+    (data.sections || []).forEach(function (section) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.textContent = section.title || section.path || "section";
+      button.addEventListener("click", function () { loadSection(section.path); });
+      sections.appendChild(button);
+    });
+    (data.questions || []).forEach(function (question) {
+      var line = document.createElement("p");
+      line.textContent = question.status + " " + question.question_id;
+      sections.appendChild(line);
+    });
+    var proposals = document.getElementById("proposals");
+    proposals.textContent = "";
+    (data.proposals || []).forEach(function (proposal) {
+      var line = document.createElement("p");
+      line.textContent = proposal.status + " " + proposal.target + " base " + proposal.base_version;
+      proposals.appendChild(line);
+    });
+    if (data.handoff && data.handoff.handoff_id) {
+      setText("handoff", "Handoff " + data.handoff.handoff_id + " " + data.handoff.status);
+    } else {
+      setText("handoff", "No handoff is attached. The document review still stands.");
+    }
+  }
+
+  function loadSection(path) {
+    sendRequest("tools/call", {
+      name: "review_section",
+      arguments: { section: path, max_bytes: 8192 }
+    }).then(function (result) {
+      var body = result && result.structuredContent && result.structuredContent.content;
+      setText("document", body || "");
+    }).catch(function (error) {
+      setText("status", JSON.stringify(error));
+    });
+  }
+
+  function submit(name, fields) {
+    sendRequest("tools/call", { name: name, arguments: fields }).then(function (result) {
+      var text = result && result.content && result.content[0] && result.content[0].text;
+      setText("result", text || "");
+      setText("status", result && result.isError ? "The room rejected that." : "Recorded. The markdown file was not replaced.");
+    }).catch(function (error) {
+      setText("status", JSON.stringify(error));
+    });
+  }
+
+  window.addEventListener("message", function (event) {
+    var data = event.data;
+    if (!data || data.jsonrpc !== "2.0") return;
+    if (data.id && pending.has(data.id)) {
+      var waiter = pending.get(data.id);
+      pending.delete(data.id);
+      if (data.error) waiter.reject(data.error);
+      else waiter.resolve(data.result);
+      return;
+    }
+    if (data.method === "ui/notifications/tool-input") {
+      var args = (data.params && data.params.arguments) || {};
+      setText("note", args.note || "");
+    }
+    if (data.method === "ui/notifications/tool-result") showBrief(data.params || {});
+    if (data.id && (data.method === "ui/resource-teardown" || data.method === "ping")) {
+      window.parent.postMessage({ jsonrpc: "2.0", id: data.id, result: {} }, "*");
+    }
+  });
+
+  document.getElementById("send-answer").addEventListener("click", function () {
+    submit("review_answer", {
+      question_id: document.getElementById("question").value,
+      value: document.getElementById("answer").value
+    });
+  });
+  document.getElementById("send-comment").addEventListener("click", function () {
+    submit("review_comment", { body: document.getElementById("comment").value });
+  });
+  document.getElementById("send-ask").addEventListener("click", function () {
+    submit("review_question_create", {
+      kind: "text",
+      prompt: document.getElementById("ask").value
+    });
+  });
+
+  sendRequest("ui/initialize", {
+    protocolVersion: "2026-01-26",
+    appCapabilities: { availableDisplayModes: ["inline"] }
+  }).then(function () {
+    sendNotification("ui/notifications/initialized", {});
+    sendNotification("ui/notifications/size-changed", { width: 640, height: 720 });
+  }).catch(function (error) {
+    setText("status", JSON.stringify(error));
+  });
+})();
+</script>
+</body>
+</html>

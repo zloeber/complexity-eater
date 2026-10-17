@@ -85,6 +85,11 @@ last_updated: 2026-10-17
 - Impact: Questions, responses, and comments are tables in `<file>.commonroom.db`. Kinds are a closed set. Unknown fields are rejected. Anchors are a region path plus a quote. A later miss is `stale` or `ambiguous` and is not reattached by guesswork. `propose` also grants answer and comment so the default invitation is unchanged. `answer` and `comment` exist for a narrower grant. The human page renders the board. `demo/handoff` does not.
 - Status: Active
 
+## 2026-10-17 — MCP Apps is a host view, not a second writer
+- Rationale: A person reviewing inside an agent host should see the document, the agent's note, and their own draft without a new engine. The management page and the tunnel already have a different job.
+- Impact: `review_open` and `review_section` call existing engine methods. The HTML template is embedded in `ce-http` and served at `ui://commonroom/review/1` only after the client declares `io.modelcontextprotocol/ui` with the HTML MIME type. There is no `initialize` method. App visibility is not a capability. `ce ui` and transport plugins are unchanged.
+- Status: Active
+
 ## 2026-10-17 — The management page is not a second room
 - Rationale: People need a local place to see how an instance is reached. Putting that inside the owner page would mix review with process configuration. A hosted backend and a new session model would invent a service this repository does not run.
 - Impact: `ce ui` binds loopback, stores `connectivity.toml` without credentials, and reports hosted coordination as unimplemented. `cloudflared` is an optional child process started only after confirmation. The origin is the room ingress, never the management port. Tunnel reachability is not authorization. Tailcat stays an optional plugin selected by `ce serve`. Offline handoff packages are not implemented.

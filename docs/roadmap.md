@@ -12,7 +12,7 @@ Local rooms and peer rooms are the product that exists. The items below are orde
 ## Next, still local
 
 3. Package `ce` for Homebrew. Tag builds already publish Linux and macOS binaries.
-4. Keep the human page as a projection of the engine. It now shows the review canvas: anchored questions, answers, comments, and proposals that have not been committed. Handoffs and MCP tasks are sidecar records. The page does not render those yet. Live notifications stay hints; there is no shared broker in local mode.
+4. Keep the human page as a projection of the engine. It now shows the review canvas: anchored questions, answers, comments, and proposals that have not been committed. Handoffs and MCP tasks are sidecar records. The page does not render those yet. A compatible host can open the same review through `review_open` and `ui://commonroom/review/1`. Text clients keep the short brief. Live notifications stay hints; there is no shared broker in local mode.
 
 ## Self-hosted
 
