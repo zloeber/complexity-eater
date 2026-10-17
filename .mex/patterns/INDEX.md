@@ -14,3 +14,4 @@
 | [personal-handoff-demo](./personal-handoff-demo.md) | Changing the manager-to-employee markdown handoff Worker, its mock profiles, or its Artifacts path. |
 | [public-website](./public-website.md) | Changing the static public site, its Cloudflare deploy, or the room-launch contract. |
 | [ui-connectivity](./ui-connectivity.md) | Opening `ce ui`, configuring a tunnel, or separating reachability from workspace authorization. |
+| [context-drop](./context-drop.md) | Starting a context drop, reading the watch receipt, refusing another pickup, or closing the drop. |

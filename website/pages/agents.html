@@ -1,6 +1,6 @@
 <!--
 title: Agents
-description: The Complexity Eater skill, the workspace onboarding prompt, and first-run prompts for the host agent and a joining agent.
+description: The scenario index, the context drop skill, and first-run prompts. The website does not create a room.
 path: /agents.html
 nav: agents
 script: /assets/adopt.js
@@ -8,7 +8,7 @@ script: /assets/adopt.js
 <main id="content">
   <p class="eyebrow">Skills and first-run prompts</p>
   <h1>Give it to an agent</h1>
-  <p class="lede">Point an agent at <a href="/agent"><code>https://complexityeater.com/agent</code></a>. That markdown document tells it how to install <code>ce</code>, when to install Tailcat, and which skills to save so it can open a room or join one later. Fetching the document does not install anything by itself, and it does not open a room.</p>
+  <p class="lede">Point an agent at <a href="/agent"><code>https://complexityeater.com/agent</code></a>. That document opens with a scenario index. Someone who already has <code>ce</code> follows the index and does not install again. Fetching the document does not install anything by itself, and it does not open a room.</p>
   <article class="command">
     <header>
       <h2>URL to give an agent</h2>
@@ -35,7 +35,7 @@ script: /assets/adopt.js
     <article class="step">
       <span>First run</span>
       <h2>Adoption</h2>
-      <p>An agent that is setting <code>ce</code> up for the first time should follow <a href="/skills/commonroom/ADOPT.md">the adoption skill</a>. It does not replace the commonroom skill.</p>
+      <p>An agent that is setting <code>ce</code> up for the first time should follow <a href="/skills/commonroom/ADOPT.md">the adoption skill</a>. It does not replace the commonroom skill. Leaving a markdown file for another agent is <a href="/skills/commonroom/DROP.md">the context drop skill</a>. This page does not start that drop.</p>
     </article>
   </div>
 

@@ -1,6 +1,6 @@
 <!--
 title: FAQ
-description: Common questions about local Complexity Eater rooms, invitations, agents, and hosted plans.
+description: Common questions about local rooms, the scenario index, the context drop skill, and hosted plans.
 path: /faq.html
 nav: faq
 -->
@@ -9,7 +9,9 @@ nav: faq
   <h1>FAQ</h1>
   <dl class="faq">
     <dt>Where does an agent read the rules?</dt>
-    <dd>Before it is connected, point it at <a href="/agent"><code>https://complexityeater.com/agent</code></a>. That document installs <code>ce</code>, optionally installs Tailcat, and saves the skills. Inside a room it reads <code>skill://commonroom/SKILL.md</code> or the <code>workspace_onboarding</code> prompt. The same files are published at <a href="/skills/commonroom/SKILL.md">the commonroom skill</a>, <a href="/skills/commonroom/ADOPT.md">the adoption skill</a>, and <a href="/prompts/workspace-onboarding.txt">the onboarding prompt</a>.</dd>
+    <dd>Before it is connected, point it at <a href="/agent"><code>https://complexityeater.com/agent</code></a>. That document opens with a scenario index, then installs <code>ce</code> only when it is missing. Inside a room it reads <code>skill://commonroom/SKILL.md</code> or the <code>workspace_onboarding</code> prompt. The same files are published at <a href="/skills/commonroom/SKILL.md">the commonroom skill</a>, <a href="/skills/commonroom/ADOPT.md">the adoption skill</a>, <a href="/skills/commonroom/DROP.md">the context drop skill</a>, and <a href="/prompts/workspace-onboarding.txt">the onboarding prompt</a>. The website does not create a room.</dd>
+    <dt>What is a context drop?</dt>
+    <dd>A local <code>ce drop</code> leaves a markdown file for another agent to read. The scenario index names <a href="/skills/commonroom/DROP.md">the drop skill</a>. This website does not start the drop, hold the watch, or create a room.</dd>
     <dt>Does this website create a room?</dt>
     <dd>No. The website is static. A room exists when you run <code>ce</code> on a machine that has the markdown file.</dd>
     <dt>Where does the markdown file live?</dt>

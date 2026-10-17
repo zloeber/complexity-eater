@@ -14,6 +14,8 @@ edges:
     condition: first-time setup or running the project
   - target: patterns/INDEX.md
     condition: starting any concrete task — check for a matching pattern first
+  - target: patterns/context-drop.md
+    condition: starting a context drop, holding the watch, or closing a drop
 last_updated: 2026-10-17
 ---
 
@@ -28,7 +30,8 @@ Read .mex/AGENTS.md if you have not already. Then read this file fully before an
 - The default integration points are loopback listeners plus optional `tailcat` transport support from the CLI.
 - Live room updates are fanned through browser SSE, MCP resource subscriptions, and `subscriptions/listen`. Task and handoff state is durable in the sidecar. Listen streams are hints and are not replayed.
 - Current validation paths are `task check`, `task test`, `task e2e`, `task release`, `task supply-chain`, `task image-verify`, and `task website:check`.
-- The public website lives in `website/` and is a static front door for `complexityeater.com`. It does not call the workspace engine. It publishes the commonroom skill, the adoption skill, and the `workspace_onboarding` prompt from `skills/commonroom/`. `https://complexityeater.com/agent` is the agent install procedure, generated from `skills/commonroom/AGENT.md` and the current release manifest. GitHub Pages still publishes `docs/`. Hosted room provisioning is not implemented. The comparison is `docs/architecture/hosted-rooms.md`, and the local launch contract is `website/contracts/room-launch.v1.json`.
+- The public website lives in `website/` and is a static front door for `complexityeater.com`. It does not call the workspace engine. It copies the commonroom skills from `skills/commonroom/`, including the context drop skill, and renders `skills/commonroom/AGENT.md` into `https://complexityeater.com/agent`. That page opens with a scenario index. Fetching it does not create a room or start a drop. GitHub Pages still publishes `docs/`. Hosted room provisioning is not implemented. The comparison is `docs/architecture/hosted-rooms.md`, and the local launch contract is `website/contracts/room-launch.v1.json`.
+- `ce drop` is a local parent watch around an ordinary room. Stdout is two JSON lines. A pickup is the first participant document read, not a join and not a summary. After pickup the room stays up until close or idle. The host, or a session that already picked up, may close it. Answering is not approval. The watch is not a tunnel and not an invitation.
 - Rust 1.99.0 is pinned. Release archives and the distroless image are scanned before publication. The container runs as UID 65532 and uses host networking because the process binds loopback only. The binary workflow is dispatched on the version tag so provenance records `refs/tags/vX.Y.Z`.
 - A proposal replaces the leased region. Whole-document replacement is explicit: `change.mode` of `document`, or a target of `workspace` or `*`. A commit rebases an in-flight proposal whose region does not overlap the change, and conflicts only on overlap.
 - The owner listener sets `commonroom_session` only for a loopback `Host` and only after the one-time token in the printed Human URL. Mutating owner routes reject a foreign `Origin`.

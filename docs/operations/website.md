@@ -15,7 +15,7 @@ task website:preview
 
 `task website:preview` serves `website/dist` on `http://127.0.0.1:4173/`. `task website:check` rebuilds the site and checks structure, internal links, the room-launch contract, and the published release assets.
 
-The build copies `docs/assets/ce-banner.png` into the site. It also publishes `skills/commonroom/SKILL.md`, `skills/commonroom/ADOPT.md`, and `skills/commonroom/onboarding.txt` at `/skills/commonroom/` and `/prompts/workspace-onboarding.txt`. Those texts are the room skill, the first-run adoption skill, and the MCP `workspace_onboarding` prompt. `skills/commonroom/AGENT.md` is the agent entry template. The build fills its release URLs and writes the same markdown to `/agent`, `/agent.md`, and `/skills/commonroom/AGENT.md`. The canonical URL to give an agent is `https://complexityeater.com/agent`. The build does not call Rust. `website/dist` is generated and is not committed.
+The build copies `docs/assets/ce-banner.png` into the site. It also publishes the commonroom skill files whose coverage entry says `copy`, including `skills/commonroom/SKILL.md`, `ADOPT.md`, `REVIEW.md`, `HANDOFF.md`, `CONNECT.md`, and `DROP.md`, plus `skills/commonroom/onboarding.txt` at `/prompts/workspace-onboarding.txt`. Those texts are copied, not rewritten. `DROP.md` is the context drop skill. `skills/commonroom/AGENT.md` is the agent entry template. It opens with a scenario index. The build fills its release URLs and writes the same markdown to `/agent`, `/agent.md`, and `/skills/commonroom/AGENT.md`. The canonical URL to give an agent is `https://complexityeater.com/agent`. Fetching that page does not create a room or start a drop. The build does not call Rust. `website/dist` is generated and is not committed.
 
 ## What gets published
 

@@ -12,13 +12,15 @@ edges:
     condition: when the site starts to describe room behavior
   - target: INDEX.md
     condition: when this pattern needs to be updated or cross-referenced
-last_updated: 2026-10-14
+  - target: context-drop.md
+    condition: when a page starts to describe a context drop or the scenario index
+last_updated: 2026-10-17
 ---
 
 # Public website
 
 ## Context
-`website/` is a static front door for `https://complexityeater.com`. GitHub Pages still publishes `docs/`. The site prepares local `ce` commands from `website/contracts/room-launch.v1.json` and publishes the room skill, the adoption skill, and the `workspace_onboarding` prompt from `skills/commonroom/`. `skills/commonroom/AGENT.md` is the template for the agent entry. The build fills its release URLs and publishes that markdown at `/agent`. Hosted mode in that contract stays `not_implemented`.
+`website/` is a static front door for `https://complexityeater.com`. GitHub Pages still publishes `docs/`. The site prepares local `ce` commands from `website/contracts/room-launch.v1.json` and copies the commonroom skills, including the context drop skill, plus the `workspace_onboarding` prompt from `skills/commonroom/`. `skills/commonroom/AGENT.md` is the template for the agent entry. It opens with a scenario index. The build fills its release URLs and publishes that markdown at `/agent`. Hosted mode in that contract stays `not_implemented`. The site does not start a drop.
 
 ## Steps
 1. Edit pages in `website/pages/` and shared assets in `website/assets/`.
@@ -32,8 +34,8 @@ last_updated: 2026-10-14
 - Do not put invitation secrets, session ids, or API tokens in pages, query strings, or the repository.
 - `complexityeater.com` is already a Cloudflare zone. It does not resolve until the Pages custom domain is attached. Preview hostnames stay on `pages.dev`.
 - A `feat:` commit on `main` publishes a new `ce` release. A website-only change does not need that.
-- The published `SKILL.md`, `ADOPT.md`, and onboarding prompt are copies of `skills/commonroom/`. Do not rewrite them on the page. The adoption skill stays off the MCP skill list.
-- `/agent` is the filled form of `AGENT.md`, not a second copy of the template. The canonical URL is `https://complexityeater.com/agent`. `complexityeater.org` is not this site. The document must not contain an invitation or claim that fetching it opened a room.
+- Skill files with publish mode `copy`, including `SKILL.md`, `ADOPT.md`, and `DROP.md`, are copies of `skills/commonroom/`. Do not rewrite them on the page. The adoption skill and the drop skill stay off the MCP skill list. The room still serves only `skill://commonroom/SKILL.md`.
+- `/agent` is the filled form of `AGENT.md`, not a second copy of the template. It opens with the scenario index. The canonical URL is `https://complexityeater.com/agent`. `complexityeater.org` is not this site. The document must not contain an invitation or claim that fetching it opened a room or started a drop.
 
 ## Verify
 - `task website:check` fetches the release archives named by the manifest.

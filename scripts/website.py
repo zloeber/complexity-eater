@@ -117,6 +117,15 @@ def release_rows(payload):
     return "\n".join(rows)
 
 
+def copied_skill_names():
+    coverage = json.loads((ROOT / "skills" / "coverage.v1.json").read_text())
+    return [
+        Path(skill["file"]).name
+        for skill in coverage["skills"]
+        if skill.get("publish") == "copy"
+    ]
+
+
 def agent_spec():
     onboarding = (ROOT / "skills" / "commonroom" / "onboarding.txt").read_text()
     contract = json.loads((SRC / "contracts" / "room-launch.v1.json").read_text())
@@ -176,19 +185,39 @@ def render_agent(payload):
         },
         "skills": [
             {
+                "name": "complexity-eater-agent",
+                "url": CANONICAL + "/agent",
+                "use": "install ce, optionally install tailcat, and save these skills",
+            },
+            {
+                "name": "complexity-eater-adopt",
+                "url": CANONICAL + "/skills/commonroom/ADOPT.md",
+                "use": "open a live room and stay with it",
+            },
+            {
+                "name": "complexity-eater-drop",
+                "url": CANONICAL + "/skills/commonroom/DROP.md",
+                "use": "leave a markdown file for another agent and hold the local watch",
+            },
+            {
                 "name": "commonroom",
                 "url": CANONICAL + "/skills/commonroom/SKILL.md",
                 "use": "join a room, propose, and commit after approval",
             },
             {
-                "name": "complexity-eater-adopt",
-                "url": CANONICAL + "/skills/commonroom/ADOPT.md",
-                "use": "open a room and invite another agent",
+                "name": "complexity-eater-review",
+                "url": CANONICAL + "/skills/commonroom/REVIEW.md",
+                "use": "comment, answer, or decide on a proposal",
             },
             {
-                "name": "complexity-eater-agent",
-                "url": CANONICAL + "/agent",
-                "use": "install ce, optionally install tailcat, and save these skills",
+                "name": "complexity-eater-handoff",
+                "url": CANONICAL + "/skills/commonroom/HANDOFF.md",
+                "use": "ask an agent already in the room to do work, or resume that work",
+            },
+            {
+                "name": "complexity-eater-connect",
+                "url": CANONICAL + "/skills/commonroom/CONNECT.md",
+                "use": "find out why a connection failed",
             },
         ],
     }
@@ -345,7 +374,7 @@ def build():
     (DIST / "contracts" / "room-launch.v1.json").write_text(
         (SRC / "contracts" / "room-launch.v1.json").read_text()
     )
-    for name in ("SKILL.md", "ADOPT.md"):
+    for name in copied_skill_names():
         source = ROOT / "skills" / "commonroom" / name
         target = DIST / "skills" / "commonroom" / name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -589,12 +618,11 @@ def check(online):
     if not banner.is_file() or banner.stat().st_size < 1000:
         fail("the banner asset was not copied into the site")
     spec = agent_spec()
-    skill = ROOT / "skills" / "commonroom" / "SKILL.md"
-    adopt = ROOT / "skills" / "commonroom" / "ADOPT.md"
-    if (DIST / "skills" / "commonroom" / "SKILL.md").read_bytes() != skill.read_bytes():
-        fail("the published skill is not the room skill")
-    if (DIST / "skills" / "commonroom" / "ADOPT.md").read_bytes() != adopt.read_bytes():
-        fail("the published adoption skill drifted")
+    for name in copied_skill_names():
+        source = ROOT / "skills" / "commonroom" / name
+        published = DIST / "skills" / "commonroom" / name
+        if not published.is_file() or published.read_bytes() != source.read_bytes():
+            fail(f"the published copy of {name} drifted")
     if (DIST / "prompts" / "workspace-onboarding.txt").read_text() != spec["onboarding"]:
         fail("the published onboarding prompt drifted")
     payload = release_manifest()
@@ -625,6 +653,10 @@ def check(online):
         "skills-cursor",
         "https://complexityeater.com/skills/commonroom/SKILL.md",
         "https://complexityeater.com/skills/commonroom/ADOPT.md",
+        "https://complexityeater.com/skills/commonroom/DROP.md",
+        "https://complexityeater.com/skills/commonroom/REVIEW.md",
+        "https://complexityeater.com/skills/commonroom/HANDOFF.md",
+        "https://complexityeater.com/skills/commonroom/CONNECT.md",
         "commonroom://join/<invitation>",
         '"provisions_room": false',
     ):

@@ -18,6 +18,7 @@ kramdown:
 
 exclude:
   - migration
+  - superpowers
   - architecture/system.html
 
 defaults:

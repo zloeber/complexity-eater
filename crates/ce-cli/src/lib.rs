@@ -2,6 +2,7 @@ mod cli;
 mod config;
 mod connectivity;
 mod dialer;
+mod drop_cmd;
 mod http_client;
 mod room;
 mod tunnel;

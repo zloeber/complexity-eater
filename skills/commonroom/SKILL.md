@@ -1,11 +1,54 @@
 ---
 name: commonroom
-description: Join a Complexity Eater room as a participant. Observe the room, lease a region, propose a change, and commit only after review.
+description: Join this Complexity Eater room when someone pastes an invitation or asks you to join this room. Read the shared markdown, propose a region change, and commit an approved proposal only after a participant with approve has accepted it. Not for installing ce, hosting a room, review feedback, handing work off, or a failed connection.
 ---
 
 # Complexity Eater
 
 This is a temporary room around something a person already has on their computer. You are a participant. The artifact stays on the host. You do not get a copy to overwrite.
+
+The room serves this file at `skill://commonroom/SKILL.md`. A context drop, review, handoff, hosting, install, and connection checks are separate skills installed from `https://complexityeater.com/agent`. If one of those skills is installed, follow it for that request. The sections below are the in-room operations.
+
+## When to use
+
+Use this when the person pastes `commonroom://join/…`, says join this room, or asks you to propose a change or commit an approved proposal. Examples: "Join this invitation.", "Commit the approved change."
+
+## When not to use
+
+- Installing or updating `ce` is `complexity-eater-agent`.
+- Hosting a room, creating an invitation, or opening the management page is `complexity-eater-adopt`.
+- Feedback, comments, and the review view are `complexity-eater-review`. If that skill is not installed, the Review questions section below is the procedure.
+- Starting a context drop before a room exists is `complexity-eater-drop`. After a pickup, reads and proposals stay here.
+- Delegating work or resuming a handoff is `complexity-eater-handoff`.
+- A failed connection is `complexity-eater-connect`. Do not rotate the invitation from this file.
+
+## Prerequisites
+
+`ce` on `PATH`, a one-use invitation, and a transport plugin named by that invitation. Loopback works on the host machine. A `tailcat` hint needs the `tailcat` program. Capabilities are the ones in the invitation. A default invitation grants `read`, `observe`, `propose`, `checkout`, and `commit`. It does not grant `approve`, `invite`, or `admin`.
+
+## Shortest successful path
+
+Prefer MCP and leave it running: `ce mcp --invite 'commonroom://join/…' --name '<your name>'`. Then follow Work in this order. If you cannot keep that process, `ce join` once with `--json --no-hold`, keep `session_id`, and use `ce call` for later operations. Do not join again.
+
+## Decision points
+
+`review` mode proposes, then someone with `approve` accepts, then `workspace_commit` with `proposal_id`. `baton` mode lets the holder write with `workspace_write`. Whole-file replacement is explicit (`change.mode` of `document`, or target `workspace`). Answering a question is not approving a proposal. Reviewing a proposal is not committing it.
+
+## Success verification
+
+`workspace_status` shows the version you expect. `workspace_proposals` shows `approved` before you commit, and the version advances only after `workspace_commit` returns. Read the region again. Do not treat a tool error string as success.
+
+## Recovery
+
+A failed dial does not spend the invitation. Joining spends one use. A second join returns `invitation_redeemed`. Reconnect with the same `session_id` until the session expires. `stale_version` means you read `current_version` and write a new proposal. After a disconnect, read the resource or call `workspace_history`. A notification is a hint.
+
+## Security
+
+The invitation is a password. Do not put it in a public page, a query string, or a ticket. Do not approve, invite, or administer unless the session says you can. A comment or an answer does not change the markdown. A handoff is not proof that the recipient finished. A tunnel provides connectivity, not authorization.
+
+## Fallback
+
+Without the skills extension, read the `workspace_onboarding` prompt. Without MCP, use `ce join` and `ce call`. Without `tailcat`, stay on loopback. The review UI, task handles, and listen subscriptions are optional. The text tools still work.
 
 An invitation is a secret. It looks like:
 

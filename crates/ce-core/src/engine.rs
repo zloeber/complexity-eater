@@ -5,10 +5,11 @@ use std::time::Duration;
 use base64::Engine;
 use ce_protocol::{
     baton_expired, baton_held, baton_renewal_limit, baton_required, capabilities_from_permissions,
-    encode_invitation, has_capability, internal_error, invalid_request, invitation_expired,
-    invitation_redeemed, invitation_revoked, lease_conflict, limit_exceeded, mode_mismatch,
-    normalize_capabilities, permission_denied, proposal_conflict, proposal_not_found,
-    session_expired, stale_version, unauthorized, version_not_found, CommonroomError, Limits,
+    drop_closed, encode_invitation, has_capability, internal_error, invalid_request,
+    invitation_expired, invitation_redeemed, invitation_revoked, lease_conflict, limit_exceeded,
+    mode_mismatch, normalize_capabilities, permission_denied, proposal_conflict,
+    proposal_not_found, session_expired, stale_version, unauthorized, version_not_found,
+    CommonroomError, Limits,
 };
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -19,11 +20,11 @@ use sha2::{Digest, Sha256};
 use crate::bus::EventBus;
 use crate::events::{
     compose_event, redact_event_payload, Event, ARTIFACT_CHANGED, BATON_EXPIRED, BATON_GRANTED,
-    BATON_RELEASED, BATON_RENEWED, BATON_REVOKED, INVITE_CREATED, INVITE_REVOKED, LEASE_ACQUIRED,
-    LEASE_EXPIRED, LEASE_RELEASED, PARTICIPANT_JOINED, PARTICIPANT_LEFT, PROPOSAL_APPROVED,
-    PROPOSAL_COMMITTED, PROPOSAL_CONFLICTED, PROPOSAL_CREATED, PROPOSAL_REJECTED,
-    PROPOSAL_SUPERSEDED, ROOM_MODE_CHANGED, SESSION_CREATED, SESSION_EXPIRED, WORKSPACE_CREATED,
-    WORKSPACE_STARTED, WORKSPACE_STOPPED,
+    BATON_RELEASED, BATON_RENEWED, BATON_REVOKED, DROP_CLOSED, DROP_PICKED_UP, INVITE_CREATED,
+    INVITE_REVOKED, LEASE_ACQUIRED, LEASE_EXPIRED, LEASE_RELEASED, PARTICIPANT_JOINED,
+    PARTICIPANT_LEFT, PROPOSAL_APPROVED, PROPOSAL_COMMITTED, PROPOSAL_CONFLICTED, PROPOSAL_CREATED,
+    PROPOSAL_REJECTED, PROPOSAL_SUPERSEDED, ROOM_MODE_CHANGED, SESSION_CREATED, SESSION_EXPIRED,
+    WORKSPACE_CREATED, WORKSPACE_STARTED, WORKSPACE_STOPPED,
 };
 use crate::markdown::{self, Heading};
 use crate::paths::resolve_user_path;
@@ -188,6 +189,21 @@ CREATE TABLE IF NOT EXISTS comments (
     participant_id TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS drop_state (
+    workspace_id TEXT PRIMARY KEY,
+    deadline TEXT NOT NULL,
+    max_pickups INTEGER NOT NULL,
+    idle_seconds INTEGER NOT NULL,
+    idle_started_at TEXT,
+    last_activity_at TEXT,
+    closed_at TEXT,
+    close_reason TEXT
+);
+CREATE TABLE IF NOT EXISTS drop_pickups (
+    session_id TEXT PRIMARY KEY,
+    participant_name TEXT NOT NULL,
+    picked_at TEXT NOT NULL
+);
 ";
 
 #[derive(Clone)]
@@ -284,6 +300,51 @@ pub struct Session {
     pub issued_at: String,
     pub expires_at: String,
     pub last_seen: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DropPickup {
+    pub participant: String,
+    pub at: String,
+    pub pickups: i64,
+    pub pickups_remaining: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DropSignal {
+    PickedUp(DropPickup),
+    Expired,
+    Closed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DropTick {
+    pub signal: Option<DropSignal>,
+    pub exit: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct DropStatus {
+    pub deadline: String,
+    pub max_pickups: i64,
+    pub idle_seconds: i64,
+    pub idle_started_at: Option<String>,
+    pub last_activity_at: Option<String>,
+    pub closed_at: Option<String>,
+    pub close_reason: Option<String>,
+    pub pickups: i64,
+    pub pickups_remaining: i64,
+}
+
+struct DropRow {
+    workspace_id: String,
+    deadline: String,
+    max_pickups: i64,
+    idle_seconds: i64,
+    idle_started_at: Option<String>,
+    last_activity_at: Option<String>,
+    closed_at: Option<String>,
+    close_reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -895,6 +956,36 @@ impl WorkspaceEngine {
         self.lock().revoke_invite(token, invite_id)
     }
 
+    pub fn open_drop(
+        &self,
+        for_minutes: i64,
+        max_pickups: i64,
+        idle_seconds: i64,
+    ) -> Result<(), CommonroomError> {
+        self.lock()
+            .open_drop(for_minutes, max_pickups, idle_seconds)
+    }
+
+    /// Records a pickup for a participant session that is about to receive
+    /// document bytes. Returns `drop_closed` without reading the document when
+    /// the window is closed and this session has no pickup row. Sessions whose
+    /// capabilities include `*` do not pick up.
+    pub fn note_document_read(&self, session: &Session) -> Result<(), CommonroomError> {
+        self.lock().note_document_read(session)
+    }
+
+    pub fn drop_close(&self, session: &Session) -> Result<(), CommonroomError> {
+        self.lock().drop_close(session)
+    }
+
+    pub fn drop_status(&self) -> Result<Option<DropStatus>, CommonroomError> {
+        self.lock().drop_status()
+    }
+
+    pub fn drop_tick(&self) -> Result<Option<DropTick>, CommonroomError> {
+        self.lock().drop_tick()
+    }
+
     pub fn configure_room(
         &self,
         mode: &str,
@@ -1127,6 +1218,7 @@ impl EngineState {
             params![self.limits.max_events as i64],
         )
         .db()?;
+        self.touch_drop_activity(&now)?;
         Ok(compose_event(event_id, event_type, now, payload))
     }
 
@@ -3380,6 +3472,14 @@ impl EngineState {
         if parse_time(&row.expires_at)? < self.now() {
             return Err(invitation_expired());
         }
+        if self.drop_row()?.is_some() {
+            self.reject_drop_join()?;
+            self.store_invite_hash(token, &row)?;
+            return Ok(ConsumedInvite {
+                capabilities: row.capabilities,
+                invite_id: row.invite_id,
+            });
+        }
         if let Some(max_uses) = row.max_uses {
             if row.used_count >= max_uses {
                 return Err(raise_exhausted(row.used_count));
@@ -3430,6 +3530,335 @@ impl EngineState {
             capabilities: row.capabilities,
             invite_id: row.invite_id,
         })
+    }
+
+    fn open_drop(
+        &self,
+        for_minutes: i64,
+        max_pickups: i64,
+        idle_seconds: i64,
+    ) -> Result<(), CommonroomError> {
+        if for_minutes < 1 || for_minutes > self.limits.max_invite_minutes {
+            return Err(invalid_request(format!(
+                "drop window must be from 1 to {} minutes",
+                self.limits.max_invite_minutes
+            )));
+        }
+        if max_pickups < 1 {
+            return Err(invalid_request("pickups must be at least 1"));
+        }
+        if idle_seconds < 0 {
+            return Err(invalid_request("idle seconds must be zero or positive"));
+        }
+        if self.drop_row()?.is_some() {
+            return Err(invalid_request("drop is already open"));
+        }
+        let deadline = format_time(self.now() + chrono::Duration::minutes(for_minutes));
+        self.conn()?
+            .execute(
+                "INSERT INTO drop_state(
+                    workspace_id, deadline, max_pickups, idle_seconds,
+                    idle_started_at, last_activity_at, closed_at, close_reason
+                 ) VALUES (?1, ?2, ?3, ?4, NULL, NULL, NULL, NULL)",
+                params![self.workspace_id()?, deadline, max_pickups, idle_seconds],
+            )
+            .db()?;
+        Ok(())
+    }
+
+    fn note_document_read(&self, session: &Session) -> Result<(), CommonroomError> {
+        let Some(state) = self.drop_row()? else {
+            return Ok(());
+        };
+        if session.capabilities.iter().any(|item| item == "*") {
+            return Ok(());
+        }
+        if self.pickup_exists(&session.session_id)? {
+            self.touch_drop_activity(&self.now_text())?;
+            return Ok(());
+        }
+        if let Some(reason) = self.drop_window_reason(&state)? {
+            return Err(drop_closed(reason));
+        }
+        let now = self.now_text();
+        self.conn()?
+            .execute(
+                "INSERT INTO drop_pickups(session_id, participant_name, picked_at)
+                 VALUES (?1, ?2, ?3)",
+                params![session.session_id, session.name, now],
+            )
+            .db()?;
+        self.conn()?
+            .execute(
+                "UPDATE drop_state
+                 SET idle_started_at = COALESCE(idle_started_at, ?1),
+                     last_activity_at = ?1
+                 WHERE workspace_id = ?2",
+                params![now, state.workspace_id],
+            )
+            .db()?;
+        let pickups = self.pickup_count()?;
+        let remaining = (state.max_pickups - pickups).max(0);
+        self.record(
+            DROP_PICKED_UP,
+            json!({
+                "participant_id": session.participant_id,
+                "name": session.name,
+                "pickups": pickups,
+                "pickups_remaining": remaining,
+            }),
+        )?;
+        Ok(())
+    }
+
+    fn drop_close(&self, session: &Session) -> Result<(), CommonroomError> {
+        let Some(state) = self.drop_row()? else {
+            return Err(invalid_request("this room is not a drop"));
+        };
+        let host = session.capabilities.iter().any(|item| item == "*");
+        let picked_up = self.pickup_exists(&session.session_id)?;
+        if !host && !picked_up {
+            return Err(permission_denied(
+                "only the host or a participant who picked up the drop can close it",
+            ));
+        }
+        if state.closed_at.is_some() {
+            return Ok(());
+        }
+        let now = self.now_text();
+        self.conn()?
+            .execute(
+                "UPDATE drop_state SET closed_at = ?1, close_reason = 'closed'
+                 WHERE workspace_id = ?2 AND closed_at IS NULL",
+                params![now, state.workspace_id],
+            )
+            .db()?;
+        self.record(
+            DROP_CLOSED,
+            json!({
+                "participant_id": session.participant_id,
+                "reason": "closed",
+            }),
+        )?;
+        Ok(())
+    }
+
+    fn drop_status(&self) -> Result<Option<DropStatus>, CommonroomError> {
+        let Some(state) = self.drop_row()? else {
+            return Ok(None);
+        };
+        let pickups = self.pickup_count()?;
+        Ok(Some(DropStatus {
+            deadline: state.deadline,
+            max_pickups: state.max_pickups,
+            idle_seconds: state.idle_seconds,
+            idle_started_at: state.idle_started_at,
+            last_activity_at: state.last_activity_at,
+            closed_at: state.closed_at,
+            close_reason: state.close_reason,
+            pickups,
+            pickups_remaining: (state.max_pickups - pickups).max(0),
+        }))
+    }
+
+    fn drop_tick(&self) -> Result<Option<DropTick>, CommonroomError> {
+        let Some(state) = self.drop_row()? else {
+            return Ok(None);
+        };
+        let pickups = self.pickup_count()?;
+        if pickups == 0 {
+            if state.closed_at.is_some() {
+                return Ok(Some(DropTick {
+                    signal: Some(DropSignal::Closed),
+                    exit: true,
+                }));
+            }
+            if parse_time(&state.deadline)? <= self.now() {
+                return Ok(Some(DropTick {
+                    signal: Some(DropSignal::Expired),
+                    exit: true,
+                }));
+            }
+            return Ok(Some(DropTick {
+                signal: None,
+                exit: false,
+            }));
+        }
+        let pickup = self.earliest_pickup()?.unwrap_or(DropPickup {
+            participant: String::new(),
+            at: state.last_activity_at.clone().unwrap_or_default(),
+            pickups,
+            pickups_remaining: (state.max_pickups - pickups).max(0),
+        });
+        let exit = state.closed_at.is_some() || self.idle_elapsed(&state)?;
+        Ok(Some(DropTick {
+            signal: Some(DropSignal::PickedUp(pickup)),
+            exit,
+        }))
+    }
+
+    fn drop_window_reason(&self, state: &DropRow) -> Result<Option<&'static str>, CommonroomError> {
+        if state.closed_at.is_some() {
+            return Ok(Some("closed"));
+        }
+        if parse_time(&state.deadline)? <= self.now() {
+            return Ok(Some("expired"));
+        }
+        if self.pickup_count()? >= state.max_pickups {
+            return Ok(Some("exhausted"));
+        }
+        Ok(None)
+    }
+
+    fn reject_drop_join(&self) -> Result<(), CommonroomError> {
+        let Some(state) = self.drop_row()? else {
+            return Ok(());
+        };
+        if parse_time(&state.deadline)? <= self.now() {
+            return Err(invitation_expired());
+        }
+        if state.closed_at.is_some() {
+            return Err(drop_closed("closed"));
+        }
+        if self.pickup_count()? >= state.max_pickups {
+            return Err(drop_closed("exhausted"));
+        }
+        Ok(())
+    }
+
+    fn store_invite_hash(&self, token: &str, row: &InviteRow) -> Result<(), CommonroomError> {
+        if row.token_hash.is_some() {
+            return Ok(());
+        }
+        let digest = sha256_hex(token.as_bytes());
+        self.conn()?
+            .execute(
+                "UPDATE invites SET token = ?1, token_hash = ?2 WHERE token = ?3",
+                params![digest, digest, row.token],
+            )
+            .db()?;
+        Ok(())
+    }
+
+    fn drop_row(&self) -> Result<Option<DropRow>, CommonroomError> {
+        self.conn()?
+            .query_row(
+                "SELECT workspace_id, deadline, max_pickups, idle_seconds, idle_started_at,
+                        last_activity_at, closed_at, close_reason
+                 FROM drop_state LIMIT 1",
+                [],
+                |row| {
+                    Ok(DropRow {
+                        workspace_id: row.get(0)?,
+                        deadline: row.get(1)?,
+                        max_pickups: row.get(2)?,
+                        idle_seconds: row.get(3)?,
+                        idle_started_at: row.get(4)?,
+                        last_activity_at: row.get(5)?,
+                        closed_at: row.get(6)?,
+                        close_reason: row.get(7)?,
+                    })
+                },
+            )
+            .optional()
+            .db()
+    }
+
+    fn pickup_count(&self) -> Result<i64, CommonroomError> {
+        self.conn()?
+            .query_row("SELECT COUNT(*) FROM drop_pickups", [], |row| row.get(0))
+            .db()
+    }
+
+    fn pickup_exists(&self, session_id: &str) -> Result<bool, CommonroomError> {
+        let found: Option<String> = self
+            .conn()?
+            .query_row(
+                "SELECT session_id FROM drop_pickups WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .db()?;
+        Ok(found.is_some())
+    }
+
+    fn earliest_pickup(&self) -> Result<Option<DropPickup>, CommonroomError> {
+        let row: Option<(String, String)> = self
+            .conn()?
+            .query_row(
+                "SELECT payload_json, created_at FROM events
+                 WHERE event_type = ?1 ORDER BY event_id ASC LIMIT 1",
+                params![DROP_PICKED_UP],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .db()?;
+        if let Some((payload, at)) = row {
+            let value: Value = serde_json::from_str(&payload).unwrap_or(Value::Null);
+            let participant = value
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            if !participant.is_empty() {
+                return Ok(Some(DropPickup {
+                    participant,
+                    at,
+                    pickups: value.get("pickups").and_then(Value::as_i64).unwrap_or(0),
+                    pickups_remaining: value
+                        .get("pickups_remaining")
+                        .and_then(Value::as_i64)
+                        .unwrap_or(0),
+                }));
+            }
+        }
+        let fallback: Option<(String, String)> = self
+            .conn()?
+            .query_row(
+                "SELECT participant_name, picked_at FROM drop_pickups
+                 ORDER BY picked_at ASC LIMIT 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .db()?;
+        let Some((participant, at)) = fallback else {
+            return Ok(None);
+        };
+        let pickups = self.pickup_count()?;
+        let max = self
+            .drop_row()?
+            .map(|state| state.max_pickups)
+            .unwrap_or(pickups);
+        Ok(Some(DropPickup {
+            participant,
+            at,
+            pickups,
+            pickups_remaining: (max - pickups).max(0),
+        }))
+    }
+
+    fn idle_elapsed(&self, state: &DropRow) -> Result<bool, CommonroomError> {
+        if state.idle_seconds == 0 {
+            return Ok(false);
+        }
+        let Some(started) = &state.idle_started_at else {
+            return Ok(false);
+        };
+        let activity = state.last_activity_at.as_deref().unwrap_or(started);
+        let at = parse_time(activity)?;
+        Ok(self.now() >= at + chrono::Duration::seconds(state.idle_seconds))
+    }
+
+    fn touch_drop_activity(&self, now: &str) -> Result<(), CommonroomError> {
+        self.conn()?
+            .execute(
+                "UPDATE drop_state SET last_activity_at = ?1 WHERE idle_started_at IS NOT NULL",
+                params![now],
+            )
+            .db()?;
+        Ok(())
     }
 }
 
@@ -4523,5 +4952,300 @@ mod tests {
         let fresh = engine.baton_request(Some(5), None, &holder).unwrap();
         assert_eq!(fresh.renewals, 0);
         assert_ne!(fresh.baton_id, grant.baton_id);
+    }
+
+    #[test]
+    fn drop_read_picks_up_once_and_the_owner_does_not() {
+        let (_dir, engine) = engine("# Note\n\nSECRET-DROP-BODY\n");
+        engine.open_drop(60, 1, 900).unwrap();
+        let host = engine.ensure_host("Host", "local").unwrap();
+        engine.summary(20, 2048, None).unwrap();
+        engine.note_document_read(&host).unwrap();
+        engine.read(None, None, None).unwrap();
+        assert_eq!(engine.drop_status().unwrap().unwrap().pickups, 0);
+        assert!(engine
+            .drop_status()
+            .unwrap()
+            .unwrap()
+            .idle_started_at
+            .is_none());
+
+        let invite = engine.create_invite().unwrap();
+        let ada = engine
+            .join("agent", "Ada", None, Some(&invite.token), "local", None)
+            .unwrap();
+        engine.summary(20, 2048, None).unwrap();
+        engine.regions_page(None, None, None, None).unwrap();
+        assert_eq!(engine.drop_status().unwrap().unwrap().pickups, 0);
+
+        engine.note_document_read(&ada).unwrap();
+        let body = engine.read(None, None, None).unwrap();
+        assert!(body.content.contains("SECRET-DROP-BODY"));
+        let status = engine.drop_status().unwrap().unwrap();
+        assert_eq!(status.pickups, 1);
+        assert_eq!(status.pickups_remaining, 0);
+        assert!(status.idle_started_at.is_some());
+        let tick = engine.drop_tick().unwrap().unwrap();
+        match tick.signal {
+            Some(DropSignal::PickedUp(pickup)) => {
+                assert_eq!(pickup.participant, "Ada");
+                assert_eq!(pickup.pickups, 1);
+                assert_eq!(pickup.pickups_remaining, 0);
+            }
+            other => panic!("expected pickup, got {other:?}"),
+        }
+        assert!(!tick.exit);
+
+        engine.note_document_read(&ada).unwrap();
+        engine.read(None, Some(2), Some(32)).unwrap();
+        assert_eq!(engine.drop_status().unwrap().unwrap().pickups, 1);
+        assert!(engine
+            .history(20, None)
+            .unwrap()
+            .iter()
+            .any(|event| event.event_type == DROP_PICKED_UP));
+    }
+
+    #[test]
+    fn drop_second_pickup_is_exhausted_and_returns_no_body() {
+        let (_dir, engine) = engine("# Note\n\nSECRET-DROP-BODY\n");
+        engine.open_drop(60, 1, 0).unwrap();
+        let invite = engine.create_invite().unwrap();
+        let first = engine
+            .join("agent", "Ada", None, Some(&invite.token), "local", None)
+            .unwrap();
+        let second = engine
+            .join("agent", "Bea", None, Some(&invite.token), "local", None)
+            .unwrap();
+        assert_eq!(engine.list_invites().unwrap()[0].used_count, 0);
+        engine.note_document_read(&first).unwrap();
+        let err = engine.note_document_read(&second).unwrap_err();
+        assert_eq!(err.code, "drop_closed");
+        assert_eq!(err.http_status, 403);
+        assert_eq!(err.details["reason"], "exhausted");
+        assert!(!err.to_value().to_string().contains("SECRET-DROP-BODY"));
+        let err = engine
+            .join("agent", "Cara", None, Some(&invite.token), "local", None)
+            .unwrap_err();
+        assert_eq!(err.code, "drop_closed");
+        assert_eq!(err.details["reason"], "exhausted");
+    }
+
+    #[test]
+    fn a_drop_join_does_not_spend_the_invite_and_a_normal_join_does() {
+        let (_dir, engine) = engine("# Note\n");
+        let plain = engine.create_invite().unwrap();
+        engine
+            .join("agent", "spent", None, Some(&plain.token), "local", None)
+            .unwrap();
+        assert_eq!(
+            engine
+                .list_invites()
+                .unwrap()
+                .iter()
+                .find(|invite| invite.invite_id.as_deref() == Some(plain.invite_id.as_str()))
+                .unwrap()
+                .used_count,
+            1
+        );
+        let err = engine
+            .join("agent", "again", None, Some(&plain.token), "local", None)
+            .unwrap_err();
+        assert_eq!(err.code, "invitation_redeemed");
+
+        engine.open_drop(60, 2, 0).unwrap();
+        let invite = engine.create_invite().unwrap();
+        engine
+            .join("agent", "Ada", None, Some(&invite.token), "local", None)
+            .unwrap();
+        engine
+            .join("agent", "Bea", None, Some(&invite.token), "local", None)
+            .unwrap();
+        assert_eq!(
+            engine
+                .list_invites()
+                .unwrap()
+                .iter()
+                .find(|item| item.invite_id.as_deref() == Some(invite.invite_id.as_str()))
+                .unwrap()
+                .used_count,
+            0
+        );
+        engine.revoke_invite(Some(&invite.token), None).unwrap();
+        let err = engine
+            .join("agent", "blocked", None, Some(&invite.token), "local", None)
+            .unwrap_err();
+        assert_eq!(err.code, "invitation_revoked");
+    }
+
+    #[test]
+    fn drop_unread_deadline_expires_and_a_read_one_stays_open() {
+        let (_dir, engine) = engine("# Note\n");
+        engine.open_drop(60, 1, 0).unwrap();
+        rewind_drop_deadline(&engine);
+        let tick = engine.drop_tick().unwrap().unwrap();
+        assert_eq!(tick.signal, Some(DropSignal::Expired));
+        assert!(tick.exit);
+        let invite = engine
+            .create_invite_with(None, None, 60, Some(1), None)
+            .unwrap();
+        let err = engine
+            .join("agent", "late", None, Some(&invite.token), "local", None)
+            .unwrap_err();
+        assert_eq!(err.code, "invitation_expired");
+    }
+
+    #[test]
+    fn drop_deadline_after_pickup_refuses_a_new_join() {
+        let (_dir, engine) = engine("# Note\n");
+        engine.open_drop(60, 2, 0).unwrap();
+        let invite = engine.create_invite().unwrap();
+        let ada = engine
+            .join("agent", "Ada", None, Some(&invite.token), "local", None)
+            .unwrap();
+        engine.note_document_read(&ada).unwrap();
+        rewind_drop_deadline(&engine);
+        let tick = engine.drop_tick().unwrap().unwrap();
+        assert!(matches!(tick.signal, Some(DropSignal::PickedUp(_))));
+        assert!(!tick.exit);
+        let err = engine
+            .join("agent", "Bea", None, Some(&invite.token), "local", None)
+            .unwrap_err();
+        assert_eq!(err.code, "invitation_expired");
+        engine.note_document_read(&ada).unwrap();
+    }
+
+    #[test]
+    fn drop_expired_window_refuses_a_session_with_no_pickup() {
+        let (_dir, engine) = engine("# Note\n\nSECRET-DROP-BODY\n");
+        engine.open_drop(60, 1, 0).unwrap();
+        let invite = engine.create_invite().unwrap();
+        let unread = engine
+            .join("agent", "Cara", None, Some(&invite.token), "local", None)
+            .unwrap();
+        rewind_drop_deadline(&engine);
+        let err = engine.note_document_read(&unread).unwrap_err();
+        assert_eq!(err.code, "drop_closed");
+        assert_eq!(err.http_status, 403);
+        assert_eq!(err.details["reason"], "expired");
+        assert!(!err.to_value().to_string().contains("SECRET-DROP-BODY"));
+    }
+
+    #[test]
+    fn drop_idle_starts_at_the_first_pickup_and_resets_on_activity() {
+        let (_dir, engine) = engine("# Note\n");
+        engine.open_drop(60, 3, 30).unwrap();
+        let invite = engine.create_invite().unwrap();
+        let ada = engine
+            .join("agent", "Ada", None, Some(&invite.token), "local", None)
+            .unwrap();
+        let before = engine.drop_status().unwrap().unwrap();
+        assert!(before.idle_started_at.is_none());
+        assert!(!engine.drop_tick().unwrap().unwrap().exit);
+        set_drop_activity(&engine, "2000-01-01T00:00:00.000000+00:00");
+        assert!(!engine.drop_tick().unwrap().unwrap().exit);
+
+        engine.note_document_read(&ada).unwrap();
+        let started = engine
+            .drop_status()
+            .unwrap()
+            .unwrap()
+            .idle_started_at
+            .unwrap();
+        set_drop_activity(&engine, "2000-01-01T00:00:00.000000+00:00");
+        assert!(engine.drop_tick().unwrap().unwrap().exit);
+
+        engine.note_document_read(&ada).unwrap();
+        let touched = engine
+            .drop_status()
+            .unwrap()
+            .unwrap()
+            .last_activity_at
+            .unwrap();
+        assert_ne!(touched, "2000-01-01T00:00:00.000000+00:00");
+        assert_eq!(
+            engine
+                .drop_status()
+                .unwrap()
+                .unwrap()
+                .idle_started_at
+                .as_deref(),
+            Some(started.as_str())
+        );
+        assert!(!engine.drop_tick().unwrap().unwrap().exit);
+
+        set_drop_activity(&engine, "2000-01-01T00:00:00.000000+00:00");
+        engine
+            .join("agent", "Bea", None, Some(&invite.token), "local", None)
+            .unwrap();
+        let after_event = engine
+            .drop_status()
+            .unwrap()
+            .unwrap()
+            .last_activity_at
+            .unwrap();
+        assert_ne!(after_event, "2000-01-01T00:00:00.000000+00:00");
+    }
+
+    #[test]
+    fn drop_only_the_host_or_a_picked_up_session_can_close() {
+        let (_dir, engine) = engine("# Note\n");
+        engine.open_drop(60, 1, 0).unwrap();
+        let host = engine.ensure_host("Host", "local").unwrap();
+        let invite = engine.create_invite().unwrap();
+        let ada = engine
+            .join("agent", "Ada", None, Some(&invite.token), "local", None)
+            .unwrap();
+        let err = engine.drop_close(&ada).unwrap_err();
+        assert_eq!(err.code, "permission_denied");
+        engine.drop_close(&host).unwrap();
+        let status = engine.drop_status().unwrap().unwrap();
+        assert!(status.closed_at.is_some());
+        assert_eq!(status.close_reason.as_deref(), Some("closed"));
+        assert_eq!(
+            engine.drop_tick().unwrap().unwrap().signal,
+            Some(DropSignal::Closed)
+        );
+        let err = engine.note_document_read(&ada).unwrap_err();
+        assert_eq!(err.code, "drop_closed");
+        assert_eq!(err.details["reason"], "closed");
+    }
+
+    #[test]
+    fn drop_picked_up_session_can_close_and_a_stranger_cannot() {
+        let (_dir, engine) = engine("# Note\n");
+        engine.open_drop(60, 1, 0).unwrap();
+        let invite = engine.create_invite().unwrap();
+        let ada = engine
+            .join("agent", "Ada", None, Some(&invite.token), "local", None)
+            .unwrap();
+        let stranger = engine
+            .join("agent", "Bea", None, Some(&invite.token), "local", None)
+            .unwrap();
+        engine.note_document_read(&ada).unwrap();
+        let err = engine.drop_close(&stranger).unwrap_err();
+        assert_eq!(err.code, "permission_denied");
+        engine.drop_close(&ada).unwrap();
+        assert!(engine.drop_status().unwrap().unwrap().closed_at.is_some());
+        assert!(engine
+            .history(30, None)
+            .unwrap()
+            .iter()
+            .any(|event| event.event_type == DROP_CLOSED));
+    }
+
+    fn rewind_drop_deadline(engine: &WorkspaceEngine) {
+        let conn = Connection::open(engine.db_path()).unwrap();
+        conn.execute(
+            "UPDATE drop_state SET deadline = ?1",
+            params!["2000-01-01T00:00:00.000000+00:00"],
+        )
+        .unwrap();
+    }
+
+    fn set_drop_activity(engine: &WorkspaceEngine, at: &str) {
+        let conn = Connection::open(engine.db_path()).unwrap();
+        conn.execute("UPDATE drop_state SET last_activity_at = ?1", params![at])
+            .unwrap();
     }
 }
