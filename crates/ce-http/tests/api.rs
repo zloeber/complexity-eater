@@ -353,16 +353,13 @@ async fn collect_stream(url: String, bearer: String, accept_sse: bool) -> Arc<Mu
             return;
         }
         let mut stream = response.bytes_stream();
-        loop {
-            match tokio::time::timeout(Duration::from_secs(6), stream.next()).await {
-                Ok(Some(Ok(chunk))) => {
-                    shared
-                        .lock()
-                        .unwrap()
-                        .push_str(&String::from_utf8_lossy(&chunk));
-                }
-                _ => break,
-            }
+        while let Ok(Some(Ok(chunk))) =
+            tokio::time::timeout(Duration::from_secs(6), stream.next()).await
+        {
+            shared
+                .lock()
+                .unwrap()
+                .push_str(&String::from_utf8_lossy(&chunk));
         }
     });
     buf
@@ -414,16 +411,13 @@ async fn observe_requires_a_session_and_pushes_proposal_events() {
     let shared = Arc::clone(&buf);
     tokio::spawn(async move {
         let mut stream = response.bytes_stream();
-        loop {
-            match tokio::time::timeout(Duration::from_secs(6), stream.next()).await {
-                Ok(Some(Ok(chunk))) => {
-                    shared
-                        .lock()
-                        .unwrap()
-                        .push_str(&String::from_utf8_lossy(&chunk));
-                }
-                _ => break,
-            }
+        while let Ok(Some(Ok(chunk))) =
+            tokio::time::timeout(Duration::from_secs(6), stream.next()).await
+        {
+            shared
+                .lock()
+                .unwrap()
+                .push_str(&String::from_utf8_lossy(&chunk));
         }
     });
     let opened = wait_for(&buf, "retry:").await;
@@ -1287,6 +1281,29 @@ async fn mcp_tool(
     serde_json::from_str(body["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
 }
 
+#[tokio::test]
+async fn provider_identity_headers_do_not_authenticate() {
+    let (_dir, engine) = engine("# Plan\n");
+    let base = serve(create_router(engine, Access::Session, None)).await;
+    let denied = client()
+        .get(format!("{base}/workspace/status"))
+        .header(
+            "Cf-Access-Jwt-Assertion",
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJldmlsIn0.sig",
+        )
+        .header("Cf-Access-Authenticated-User-Email", "person@example.com")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), 401);
+    let body = denied.text().await.unwrap();
+    assert!(!body.contains("person@example.com"));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body).unwrap()["error"],
+        "unauthorized"
+    );
+}
+
 fn collect_listen(url: String, bearer: String, body: serde_json::Value) -> Arc<Mutex<String>> {
     let buf = Arc::new(Mutex::new(String::new()));
     let shared = Arc::clone(&buf);
@@ -1312,16 +1329,13 @@ fn collect_listen(url: String, bearer: String, body: serde_json::Value) -> Arc<M
             return;
         }
         let mut stream = response.bytes_stream();
-        loop {
-            match tokio::time::timeout(Duration::from_secs(6), stream.next()).await {
-                Ok(Some(Ok(chunk))) => {
-                    shared
-                        .lock()
-                        .unwrap()
-                        .push_str(&String::from_utf8_lossy(&chunk));
-                }
-                _ => break,
-            }
+        while let Ok(Some(Ok(chunk))) =
+            tokio::time::timeout(Duration::from_secs(6), stream.next()).await
+        {
+            shared
+                .lock()
+                .unwrap()
+                .push_str(&String::from_utf8_lossy(&chunk));
         }
     });
     buf

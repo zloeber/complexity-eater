@@ -10,7 +10,7 @@ edges:
     condition: when verifying operational assumptions and supported environments
   - target: ../patterns/handoff-tasks.md
     condition: when the handoff and task split needs the operational steps
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 ---
 
 # Architectural Decisions
@@ -83,4 +83,9 @@ last_updated: 2026-10-16
 ## 2026-10-16 — Review questions live in the sidecar, and the room is the session
 - Rationale: An agent needs a durable answer tied to a passage. Putting that in the markdown would mix the artifact with the conversation. A second review service would split the writer. The existing proposal path already keeps document edits unapplied until approval.
 - Impact: Questions, responses, and comments are tables in `<file>.commonroom.db`. Kinds are a closed set. Unknown fields are rejected. Anchors are a region path plus a quote. A later miss is `stale` or `ambiguous` and is not reattached by guesswork. `propose` also grants answer and comment so the default invitation is unchanged. `answer` and `comment` exist for a narrower grant. The human page renders the board. `demo/handoff` does not.
+- Status: Active
+
+## 2026-10-17 — The management page is not a second room
+- Rationale: People need a local place to see how an instance is reached. Putting that inside the owner page would mix review with process configuration. A hosted backend and a new session model would invent a service this repository does not run.
+- Impact: `ce ui` binds loopback, stores `connectivity.toml` without credentials, and reports hosted coordination as unimplemented. `cloudflared` is an optional child process started only after confirmation. The origin is the room ingress, never the management port. Tunnel reachability is not authorization. Tailcat stays an optional plugin selected by `ce serve`. Offline handoff packages are not implemented.
 - Status: Active

@@ -29,6 +29,10 @@ An event stream and a resource-update notification are not writes. They cannot a
 
 Tailcat is a subprocess. This binary does not implement Tailcat's cryptography. A missing or crashed `tailcat` process is `transport_unavailable`. It is not a fallback to an open listener.
 
+`ce ui` is a second loopback listener, the management page. It is not the owner port and not the session ingress. Its cookie is `ce_ui_session`, set only after the one-time token in the printed URL. Mutating requests reject a foreign `Host`, a foreign `Origin`, and `Sec-Fetch-Site: cross-site`. The page refuses a non-loopback bind. Enabling a tunnel or a private-network preference requires an explicit confirmation. The tunnel origin is the room ingress, never the management port.
+
+Cloudflare Tunnel, when started from that page, is a `cloudflared` child process. This binary does not store API tokens or the cloudflared login certificate. Traffic for a quick tunnel passes through Cloudflare. The provider can see that a connection exists. A hostname is not a workspace session. `Cf-Access-Jwt-Assertion` and `Cf-Access-Authenticated-User-Email` are not accepted as identity. Invitation and revocation stay in the engine.
+
 ## Abuse cases covered by tests
 
 * Spent, expired, revoked, and legacy plaintext invitations.

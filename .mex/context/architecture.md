@@ -20,13 +20,13 @@ edges:
     condition: when changing review or baton mode, or the owner session gate
   - target: ../patterns/review-canvas.md
     condition: when changing anchored questions, answers, or the human review page
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 ---
 
 # Architecture
 
 ## Components
-- `ce-cli` owns the room lifecycle and CLI entrypoints (`ce serve`, `ce join`, `ce mcp`, `ce invite`, etc.).
+- `ce-cli` owns the room lifecycle and CLI entrypoints (`ce serve`, `ce ui`, `ce join`, `ce mcp`, `ce invite`, etc.). `ce ui` is a loopback management page. It stores connectivity preferences beside the user config and does not write the markdown file.
 - `ce-core` owns the `WorkspaceEngine`, SQLite sidecar schema, permissions, proposals, leases, and markdown region logic.
 - `ce-http` exposes the human page, session ingress, MCP endpoint, and the HTTP routes consumed by the CLI and agents.
 - `ce-transport` implements loopback and optional Tailcat transports and the connection abstraction used when sending frames between peers.

@@ -228,6 +228,7 @@ dependencies = [
  "ce-transport",
  "clap",
  "hex",
+ "regex",
  "serde",
  "serde_json",
  "sha2",

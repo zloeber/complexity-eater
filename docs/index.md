@@ -36,6 +36,7 @@ The [system diagram](architecture/diagram.md) shows the room process, the two li
 * [Threat model](security/threat-model.md)
 * [Supply chain](security/supply-chain.md)
 * [Configuration](operations/configuration.md)
+* [Connectivity](operations/connectivity.md)
 * [Container](operations/container.md)
 * [Release](operations/release.md)
 * [Roadmap](roadmap.md)

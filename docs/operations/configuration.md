@@ -4,6 +4,8 @@ title: Configuration
 
 `ce` does not require a config file. A TOML file overrides the built-in defaults, and an explicit flag overrides the file.
 
+`ce ui` is the local management page. Its preferences live in `connectivity.toml` in the config directory below, separate from room settings. That file does not store credentials. See [Connectivity](connectivity.md).
+
 ## Workspace
 
 The substrate path is the positional argument to `ce serve`, or `--workspace` on the local commands. The default file name is `workspace.md`.

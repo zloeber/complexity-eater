@@ -54,6 +54,15 @@ The invitation looks like `commonroom://join/...`. Give that string to an agent.
 
 `--tailcat` publishes the session ingress through the `tailcat` binary. Install it from <https://github.com/tailscale/tailcat#install>. If it is missing, `ce` exits with `transport_unavailable` and does not open a public listener.
 
+## Management page
+
+```sh
+ce ui
+ce ui --port 0 --no-browser
+```
+
+`ce ui` binds `127.0.0.1` and prints the URL it actually opened. The page explains local-only use, records that hosted coordination is not implemented, and can start an optional `cloudflared` tunnel only after an explicit confirmation. The tunnel is not an invitation. Tailcat stays optional. Details are in [Connectivity](docs/operations/connectivity.md).
+
 ## Invite and join
 
 From the room's machine:
