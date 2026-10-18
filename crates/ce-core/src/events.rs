@@ -51,6 +51,8 @@ pub const QUESTION_ANSWERED: &str = "question.answered";
 pub const QUESTION_STATUS: &str = "question.status";
 pub const COMMENT_CREATED: &str = "comment.created";
 pub const REVIEW_STATUS: &str = "review.status";
+pub const DROP_PICKED_UP: &str = "drop.picked_up";
+pub const DROP_CLOSED: &str = "drop.closed";
 
 pub const KNOWN_EVENT_TYPES: &[&str] = &[
     WORKSPACE_CREATED,
@@ -92,6 +94,8 @@ pub const KNOWN_EVENT_TYPES: &[&str] = &[
     QUESTION_STATUS,
     COMMENT_CREATED,
     REVIEW_STATUS,
+    DROP_PICKED_UP,
+    DROP_CLOSED,
 ];
 
 const SECRET_KEYS: &[&str] = &[

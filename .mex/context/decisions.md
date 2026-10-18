@@ -10,6 +10,8 @@ edges:
     condition: when verifying operational assumptions and supported environments
   - target: ../patterns/handoff-tasks.md
     condition: when the handoff and task split needs the operational steps
+  - target: ../patterns/context-drop.md
+    condition: when the drop watch, pickup window, or close rules need the operational steps
 last_updated: 2026-10-17
 ---
 
@@ -93,4 +95,9 @@ last_updated: 2026-10-17
 ## 2026-10-17 — The management page is not a second room
 - Rationale: People need a local place to see how an instance is reached. Putting that inside the owner page would mix review with process configuration. A hosted backend and a new session model would invent a service this repository does not run.
 - Impact: `ce ui` binds loopback, stores `connectivity.toml` without credentials, and reports hosted coordination as unimplemented. `cloudflared` is an optional child process started only after confirmation. The origin is the room ingress, never the management port. Tunnel reachability is not authorization. Tailcat stays an optional plugin selected by `ce serve`. Offline handoff packages are not implemented.
+- Status: Active
+
+## 2026-10-17 — A context drop is a local watch around an ordinary room
+- Rationale: One agent needs to leave a markdown file for another without a hosted workspace, an offline package, or a second protocol. The pickup window is not the same thing as the later session.
+- Impact: `ce drop` is the parent watch and spawns the current executable as the room child. Stdout is two JSON lines (`started`, then `picked_up`, `expired`, or `closed`). The parent exits 0, 2, or 3 for those three. A pickup is the first participant `workspace_read` or `review_section`. After `picked_up` the room stays up. The host, or a session that already picked up, may close with `drop_close` or `POST /workspace/drop/close`. A join-only session cannot. Answering is not approval. The website does not start a drop. The room still serves only `skill://commonroom/SKILL.md`. The watch is local. Core crates stay vendor-neutral.
 - Status: Active

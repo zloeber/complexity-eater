@@ -20,6 +20,7 @@ use crate::room::start_room;
 
 const COMMANDS: &[&str] = &[
     "serve",
+    "drop",
     "status",
     "invite",
     "join",
@@ -75,6 +76,7 @@ async fn dispatch(argv: Vec<String>) -> Result<i32, CommonroomError> {
     let (command, args) = matches.subcommand().unwrap_or(("serve", &matches));
     match command {
         "serve" => serve(args).await,
+        "drop" => crate::drop_cmd::run(args).await,
         "ui" => management_ui(args).await,
         "mcp" => Ok(run_dialer(
             args.get_one::<String>("invite")
@@ -167,6 +169,7 @@ fn parser() -> Command {
                 )
                 .arg(Arg::new("json").long("json").action(ArgAction::SetTrue)),
         )
+        .subcommand(drop_command())
         .subcommand(workspace_command(
             "status",
             "Show workspace status",
@@ -321,6 +324,69 @@ fn parser() -> Command {
                 .arg(Arg::new("config").long("config").help(
                     "Connectivity file. Defaults to connectivity.toml in the config directory",
                 )),
+        )
+}
+
+fn drop_command() -> Command {
+    Command::new("drop")
+        .about("Leave a markdown file for another agent and watch until it is picked up")
+        .subcommand_negates_reqs(true)
+        .subcommand_precedence_over_arg(true)
+        .arg(
+            Arg::new("path")
+                .value_name("file")
+                .required(true)
+                .help("Markdown file to share"),
+        )
+        .arg(
+            Arg::new("name")
+                .long("name")
+                .required(true)
+                .help("Host name printed for this room"),
+        )
+        .arg(
+            Arg::new("for")
+                .long("for")
+                .value_parser(clap::value_parser!(i64).range(1..=10_080))
+                .default_value("60")
+                .help("Pickup window in minutes"),
+        )
+        .arg(
+            Arg::new("pickups")
+                .long("pickups")
+                .value_parser(clap::value_parser!(i64).range(1..=1_000_000))
+                .default_value("1")
+                .help("How many new sessions may read the document"),
+        )
+        .arg(
+            Arg::new("idle")
+                .long("idle")
+                .value_parser(clap::value_parser!(i64).range(0..=525_600))
+                .default_value("15")
+                .help("Minutes of quiet after a pickup before the room exits. 0 disables idle"),
+        )
+        .arg(
+            Arg::new("ephemeral")
+                .long("ephemeral")
+                .action(ArgAction::SetTrue)
+                .help("Keep metadata only for this process"),
+        )
+        .arg(
+            Arg::new("tailcat")
+                .long("tailcat")
+                .action(ArgAction::SetTrue)
+                .help("Expose the room through the Tailcat plugin"),
+        )
+        .arg(json_arg())
+        .subcommand(
+            Command::new("close")
+                .about("Ask the running drop to shut down")
+                .arg(
+                    Arg::new("workspace")
+                        .long("workspace")
+                        .required(true)
+                        .help("Markdown file whose drop should stop"),
+                ),
         )
 }
 

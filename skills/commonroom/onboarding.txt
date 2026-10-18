@@ -2,11 +2,13 @@ Work in this room in this order:
 1. Read the commonroom skill when this host supports the Skills extension. Otherwise follow the steps below.
 2. workspace_status. Read mode. review is the default. baton means the holder writes directly.
 3. workspace_summary, then workspace_regions. Use full paths. A bare title that matches twice is invalid_region with details.candidates.
-4. workspace_read for one region. A read with no section is a short excerpt. Follow continuation or next_offset. Do not pull the whole file.
+4. workspace_read for one region. A read with no section is a short excerpt. Follow continuation or next_offset. Do not pull the whole file. On a context drop, the pickup is the first document read. A summary does not count.
 5. In review mode: workspace_checkout, then workspace_propose. change.content is the new region text and must include the heading. change.section, if set, must match target. Wait until the proposal is approved. workspace_commit requires proposal_id.
 6. In baton mode: workspace_baton_status, then workspace_baton_request. workspace_write uses the same change object and only the region you name. Release the baton when you stop. baton_held names the holder and expires_at. If baton_max_renewals is set, stop renewing at that count; baton_renewal_limit means this grant is done.
 7. workspace_release for any lease you still hold.
-8. To ask a person about a passage, call review_question_create with kind, prompt, region, and quote. kind is text, single, multi, yes_no, or approve_reject. Read the answer with review_context. The answer includes the question id and the passage. It does not change the file. A document edit is still workspace_propose, then approval, then workspace_commit.
+8. To ask a person about a passage, call review_question_create with kind, prompt, region, and quote. kind is text, single, multi, yes_no, or approve_reject. Read the answer with review_context. The answer includes the question id and the passage. Answering a question is not approving a proposal. A comment or an answer does not change the markdown. A document edit is still workspace_propose, then approval, then workspace_commit. Reviewing a proposal is not committing it.
+9. handoff_create asks another participant to do work. They handoff_accept, then handoff_complete. A handoff is not proof that the recipient finished. Completion is not approval. After a disconnect, read handoff_get or tasks/get. A notification is a hint.
+10. review_open is a short text brief unless the client declared io.modelcontextprotocol/ui with MIME type text/html;profile=mcp-app. The view does not commit. Without that declaration, use review_context, review_answer, and review_comment.
 
 A commit on one region does not throw away an approved proposal on a different region. The same region still returns stale_version. Whole-file replacement sets change.mode to document.
 

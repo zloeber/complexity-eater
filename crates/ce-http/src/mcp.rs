@@ -348,6 +348,12 @@ fn tools() -> Vec<Tool> {
             json!({"type": "object", "properties": {}}),
         ),
         tool(
+            "drop_close",
+            "read",
+            "Close this drop. The host can close it. A participant can close it after picking up the document.",
+            json!({"type": "object", "properties": {}}),
+        ),
+        tool(
             "workspace_observe",
             "observe",
             "Events since an event id.",
@@ -637,7 +643,7 @@ fn tools_call(
         };
     }
     if name == "review_section" {
-        return match read_review_section(engine, &arguments) {
+        return match read_review_section(engine, session, &arguments) {
             Ok((text, structured)) => Ok(complete_tool(&text, Some(structured))),
             Err(err) => Ok(tool_error(err)),
         };
@@ -693,12 +699,15 @@ fn dispatch(
             args.get("cursor").and_then(Value::as_i64),
             args.get("limit").and_then(Value::as_i64),
         )?)?,
-        "workspace_read" => as_json(engine.read_with_offset(
-            args.get("section").and_then(Value::as_str),
-            args.get("max_lines").and_then(Value::as_i64),
-            args.get("max_bytes").and_then(Value::as_i64),
-            args.get("offset").and_then(Value::as_i64),
-        )?)?,
+        "workspace_read" => {
+            engine.note_document_read(session)?;
+            as_json(engine.read_with_offset(
+                args.get("section").and_then(Value::as_str),
+                args.get("max_lines").and_then(Value::as_i64),
+                args.get("max_bytes").and_then(Value::as_i64),
+                args.get("offset").and_then(Value::as_i64),
+            )?)?
+        }
         "workspace_diff" => as_json(engine.diff(required_i64(args, "base_version")?)?)?,
         "workspace_changes_since" => as_json(engine.changes_since(
             required_i64(args, "version")?,
@@ -715,6 +724,10 @@ fn dispatch(
         "workspace_diagnostics" => as_json(engine.connection_diagnostics()?)?,
         "workspace_leave" => {
             engine.leave(&session.participant_id)?;
+            json!({"status": "ok"})
+        }
+        "drop_close" => {
+            engine.drop_close(session)?;
             json!({"status": "ok"})
         }
         "workspace_observe" => json!({"events": engine.events_since(
@@ -950,12 +963,14 @@ fn open_review(
 
 fn read_review_section(
     engine: &WorkspaceEngine,
+    session: &Session,
     args: &Value,
 ) -> Result<(String, Value), CommonroomError> {
     let max_bytes = args
         .get("max_bytes")
         .and_then(Value::as_i64)
         .unwrap_or(8_192);
+    engine.note_document_read(session)?;
     let read = engine.read_with_offset(
         args.get("section").and_then(Value::as_str),
         args.get("max_lines").and_then(Value::as_i64),
@@ -1080,6 +1095,7 @@ fn read_workspace_resource(
         RESOURCE_STATUS => serde_json::to_value(redacted_status(engine, session)?)
             .map_err(|err| ce_protocol::internal_error(err.to_string()))?,
         RESOURCE_DOCUMENT => {
+            engine.note_document_read(session)?;
             return Ok((
                 "text/markdown",
                 engine.read(None, None, Some(1_048_576))?.content,

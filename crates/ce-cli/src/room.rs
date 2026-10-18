@@ -164,6 +164,17 @@ pub async fn start_room(
     name: &str,
     transport_name: Option<&str>,
 ) -> Result<RunningRoom, CommonroomError> {
+    start_room_invited(engine, host, port, name, transport_name, None).await
+}
+
+pub(crate) async fn start_room_invited(
+    engine: Arc<WorkspaceEngine>,
+    host: &str,
+    port: u16,
+    name: &str,
+    transport_name: Option<&str>,
+    invite_minutes: Option<i64>,
+) -> Result<RunningRoom, CommonroomError> {
     let bind_host = loopback_host(host)?;
     let host_session = engine.ensure_host(name, "local")?;
     let owner = TcpListener::bind((bind_host, port))
@@ -215,7 +226,10 @@ pub async fn start_room(
                 "mode": "local"
             })))?;
         }
-        let invite = engine.create_invite()?;
+        let invite = match invite_minutes {
+            Some(minutes) => engine.create_invite_with(None, None, minutes, Some(1), None)?,
+            None => engine.create_invite()?,
+        };
         engine.mark_started()?;
         Ok(invite)
     })();

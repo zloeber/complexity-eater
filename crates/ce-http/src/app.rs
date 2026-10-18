@@ -138,6 +138,7 @@ pub fn create_router_with(
         .route("/workspace/invites", get(invites))
         .route("/workspace/invite/revoke", post(invite_revoke))
         .route("/workspace/leave", post(leave))
+        .route("/workspace/drop/close", post(drop_close))
         .route("/workspace/participant/remove", post(remove_participant))
         .route("/workspace/observe", get(observe))
         .route("/workspace/mode", post(set_mode))
@@ -452,6 +453,7 @@ async fn workspace_read(
 ) -> Result<Response, AppError> {
     let session = principal(&state, &headers, "anon")?;
     state.engine.require(&session, "read")?;
+    state.engine.note_document_read(&session)?;
     json_ok(state.engine.read_with_offset(
         query.section.as_deref(),
         query.max_lines,
@@ -1025,6 +1027,15 @@ async fn leave(
 ) -> Result<Response, AppError> {
     let session = principal(&state, &headers, "anon")?;
     state.engine.leave(&session.participant_id)?;
+    json_ok(json!({"status": "ok"}))
+}
+
+async fn drop_close(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
+    let session = principal(&state, &headers, "anon")?;
+    state.engine.drop_close(&session)?;
     json_ok(json!({"status": "ok"}))
 }
 

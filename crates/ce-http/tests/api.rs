@@ -1631,6 +1631,179 @@ async fn review_app_is_optional_and_does_not_write_the_file() {
     assert_eq!(std::fs::read_to_string(&path).unwrap(), doc);
 }
 
+#[tokio::test]
+async fn drop_summary_does_not_pick_up_and_a_second_read_has_no_body() {
+    let (_dir, engine) = engine("# Note\n\nSECRET-DROP-BODY\n");
+    engine.open_drop(60, 1, 0).unwrap();
+    let host = engine.ensure_host("Host", "local").unwrap();
+    let base = serve(create_router(Arc::clone(&engine), Access::Session, None)).await;
+    let client = client();
+    let invite = engine.create_invite().unwrap();
+    let ada = join_drop(&client, &base, &invite.token, "Ada").await;
+    let bea = join_drop(&client, &base, &invite.token, "Bea").await;
+
+    let summary = client
+        .get(format!("{base}/workspace/summary"))
+        .bearer_auth(&ada)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(summary.status(), 200);
+    assert_eq!(engine.drop_status().unwrap().unwrap().pickups, 0);
+
+    let owner = client
+        .get(format!("{base}/workspace/read"))
+        .bearer_auth(&host.session_id)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(owner.status(), 200);
+    assert!(owner.text().await.unwrap().contains("SECRET-DROP-BODY"));
+    assert_eq!(engine.drop_status().unwrap().unwrap().pickups, 0);
+
+    let first = client
+        .get(format!("{base}/workspace/read"))
+        .bearer_auth(&ada)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(first.status(), 200);
+    assert!(first.text().await.unwrap().contains("SECRET-DROP-BODY"));
+    assert_eq!(engine.drop_status().unwrap().unwrap().pickups, 1);
+
+    let again = client
+        .get(format!("{base}/workspace/read"))
+        .bearer_auth(&ada)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(again.status(), 200);
+    assert_eq!(engine.drop_status().unwrap().unwrap().pickups, 1);
+
+    let refused = client
+        .get(format!("{base}/workspace/read"))
+        .bearer_auth(&bea)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), 403);
+    let refused_body = refused.text().await.unwrap();
+    let refused_json: serde_json::Value = serde_json::from_str(&refused_body).unwrap();
+    assert_eq!(refused_json["error"], "drop_closed");
+    assert_eq!(refused_json["details"]["reason"], "exhausted");
+    assert!(!refused_body.contains("SECRET-DROP-BODY"));
+
+    let denied = client
+        .post(format!("{base}/workspace/drop/close"))
+        .bearer_auth(&bea)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), 403);
+    assert_eq!(
+        denied.json::<serde_json::Value>().await.unwrap()["error"],
+        "permission_denied"
+    );
+    let closed = client
+        .post(format!("{base}/workspace/drop/close"))
+        .bearer_auth(&ada)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(closed.status(), 200);
+}
+
+#[tokio::test]
+async fn drop_review_section_picks_up_once_and_the_host_can_close() {
+    let (_dir, engine) = engine("# Note\n\nSECRET-DROP-BODY\n");
+    engine.open_drop(60, 1, 0).unwrap();
+    let host = engine.ensure_host("Host", "local").unwrap();
+    let base = serve(create_router(Arc::clone(&engine), Access::Session, None)).await;
+    let client = client();
+    let invite = engine.create_invite().unwrap();
+    let ada = join_drop(&client, &base, &invite.token, "Ada").await;
+    let denied = client
+        .post(format!("{base}/workspace/drop/close"))
+        .bearer_auth(&ada)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), 403);
+
+    let section = mcp(
+        &client,
+        &base,
+        &ada,
+        "tools/call",
+        Some("review_section"),
+        json!({"name": "review_section", "arguments": {"max_bytes": 8192}, "_meta": ui_meta(None)}),
+    )
+    .await;
+    assert_eq!(section["result"]["isError"], false, "{section}");
+    assert!(section["result"]["structuredContent"]["content"]
+        .as_str()
+        .unwrap()
+        .contains("SECRET-DROP-BODY"));
+    assert_eq!(engine.drop_status().unwrap().unwrap().pickups, 1);
+
+    let again = mcp(
+        &client,
+        &base,
+        &ada,
+        "tools/call",
+        Some("review_section"),
+        json!({"name": "review_section", "arguments": {}, "_meta": ui_meta(None)}),
+    )
+    .await;
+    assert_eq!(again["result"]["isError"], false, "{again}");
+    assert_eq!(engine.drop_status().unwrap().unwrap().pickups, 1);
+
+    let read = mcp(
+        &client,
+        &base,
+        &ada,
+        "tools/call",
+        Some("workspace_read"),
+        json!({"name": "workspace_read", "arguments": {}, "_meta": ui_meta(None)}),
+    )
+    .await;
+    assert_eq!(read["result"]["isError"], false, "{read}");
+    assert_eq!(engine.drop_status().unwrap().unwrap().pickups, 1);
+
+    let host_close = mcp(
+        &client,
+        &base,
+        &host.session_id,
+        "tools/call",
+        Some("drop_close"),
+        json!({"name": "drop_close", "arguments": {}, "_meta": ui_meta(None)}),
+    )
+    .await;
+    assert_eq!(host_close["result"]["isError"], false, "{host_close}");
+    assert!(engine.drop_status().unwrap().unwrap().closed_at.is_some());
+}
+
+async fn join_drop(client: &reqwest::Client, base: &str, token: &str, name: &str) -> String {
+    let joined = client
+        .post(format!("{base}/session/join"))
+        .json(&json!({
+            "invite": token,
+            "name": name,
+            "kind": "agent",
+            "transport": "loopback"
+        }))
+        .send()
+        .await
+        .unwrap();
+    let status = joined.status();
+    let body = joined.text().await.unwrap();
+    assert_eq!(status, 200, "{body}");
+    serde_json::from_str::<serde_json::Value>(&body).unwrap()["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
 fn collect_listen(url: String, bearer: String, body: serde_json::Value) -> Arc<Mutex<String>> {
     let buf = Arc::new(Mutex::new(String::new()));
     let shared = Arc::clone(&buf);

@@ -52,6 +52,7 @@ pub const ERROR_CODES: &[&str] = &[
     "invitation_expired",
     "invitation_revoked",
     "invitation_redeemed",
+    "drop_closed",
     "unsupported_version",
     "session_expired",
     "lease_conflict",
@@ -222,6 +223,11 @@ pub const OPERATIONS: &[Operation] = &[
     Operation {
         name: "workspace.leave",
         http: "POST /workspace/leave",
+        capability: "read",
+    },
+    Operation {
+        name: "workspace.drop_close",
+        http: "POST /workspace/drop/close",
         capability: "read",
     },
     Operation {
@@ -427,6 +433,16 @@ pub fn invitation_revoked() -> CommonroomError {
 
 pub fn invitation_redeemed() -> CommonroomError {
     CommonroomError::new("invitation_redeemed", 403, "invite already redeemed")
+}
+
+pub fn drop_closed(reason: &str) -> CommonroomError {
+    let message = match reason {
+        "expired" => "drop window expired",
+        "exhausted" => "drop pickup limit reached",
+        "closed" => "drop is closed",
+        _ => "drop is closed",
+    };
+    CommonroomError::new("drop_closed", 403, message).detail("reason", reason)
 }
 
 pub fn unsupported_version(message: impl Into<String>) -> CommonroomError {

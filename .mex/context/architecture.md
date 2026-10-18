@@ -22,13 +22,15 @@ edges:
     condition: when changing anchored questions, answers, or the human review page
   - target: ../patterns/mcp-apps.md
     condition: when changing the MCP Apps review view or ui:// resources
+  - target: ../patterns/context-drop.md
+    condition: when changing a context drop, the pickup window, or drop close
 last_updated: 2026-10-17
 ---
 
 # Architecture
 
 ## Components
-- `ce-cli` owns the room lifecycle and CLI entrypoints (`ce serve`, `ce ui`, `ce join`, `ce mcp`, `ce invite`, etc.). `ce ui` is a loopback management page. It stores connectivity preferences beside the user config and does not write the markdown file.
+- `ce-cli` owns the room lifecycle and CLI entrypoints (`ce serve`, `ce ui`, `ce drop`, `ce join`, `ce mcp`, `ce invite`, etc.). `ce ui` is a loopback management page. It stores connectivity preferences beside the user config and does not write the markdown file. `ce drop` is a parent watch that spawns the same executable as the room child.
 - `ce-core` owns the `WorkspaceEngine`, SQLite sidecar schema, permissions, proposals, leases, and markdown region logic.
 - `ce-http` exposes the human page, session ingress, MCP endpoint, and the HTTP routes consumed by the CLI and agents.
 - `ce-transport` implements loopback and optional Tailcat transports and the connection abstraction used when sending frames between peers.
@@ -53,9 +55,11 @@ last_updated: 2026-10-17
 - `demo/handoff` is one Cloudflare Worker and one Durable Object for a pasted markdown handoff between two demo profiles. It checks sessions itself and stores the sealed original plus later revisions. It does not write the room markdown file. Artifacts commits are used only when that binding is deployed. It does not store review questions.
 - Review questions, responses, and comments are sidecar rows. The human page reads them from `/workspace/room`. An answer does not write the markdown. Proposed edits remain proposals. See [the review canvas pattern](../patterns/review-canvas.md).
 - `review_open` serves the same review through MCP Apps when the client declares `io.modelcontextprotocol/ui`. The template is `ui://commonroom/review/1` inside `ce-http`. Text clients get a short brief. See [the MCP Apps pattern](../patterns/mcp-apps.md).
-- The public website in `website/` is static and separate. It prepares local `ce` commands from room-launch contract version 1, publishes the commonroom skill and the `workspace_onboarding` prompt from `skills/commonroom/`, and does not upload a workspace or provision a hosted room. `https://complexityeater.com/agent` is the markdown procedure an agent follows to install `ce`, optionally install `tailcat`, and save the skills it uses to open or join a room.
+- `ce drop` holds a local watch until the first participant `workspace_read` or `review_section`, or until the window ends with no read. After `picked_up` the child stays up. The deadline and the pickup count only stop new pickups. Close is `drop_close` or `POST /workspace/drop/close`, and only for the host or a session that already picked up. See [the context drop pattern](../patterns/context-drop.md).
+- The public website in `website/` is static and separate. It prepares local `ce` commands from room-launch contract version 1, copies the commonroom skills (including the context drop skill) and the `workspace_onboarding` prompt from `skills/commonroom/`, and does not upload a workspace, start a drop, or provision a hosted room. `https://complexityeater.com/agent` opens with a scenario index and is the markdown procedure an agent follows to install `ce`, optionally install `tailcat`, and save the skills it uses to open or join a room.
 
 ## Important invariants
 - Authorization is derived from identity, not from JSON body values.
 - The engine is a single mutex-backed writer for the workspace state and markdown file.
-- Core crates intentionally avoid transport-vendor naming to keep the protocol and engine transport-agnostic.
+- A drop pickup is a document read. Join, summary, and the owner page do not pick up. Closing the pickup window does not stop a session that already picked up. Answering is not approval.
+- Core crates stay vendor-neutral.
