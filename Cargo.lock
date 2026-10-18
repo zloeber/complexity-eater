@@ -219,7 +219,7 @@ dependencies = [
 
 [[package]]
 name = "ce-cli"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "axum",
  "ce-core",
@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "ce-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "base64 0.22.1",
  "ce-protocol",
@@ -260,7 +260,7 @@ dependencies = [
 
 [[package]]
 name = "ce-http"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "async-stream",
  "axum",
@@ -281,7 +281,7 @@ dependencies = [
 
 [[package]]
 name = "ce-protocol"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "base64 0.22.1",
  "serde",
@@ -290,7 +290,7 @@ dependencies = [
 
 [[package]]
 name = "ce-transport"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "ce-protocol",
  "regex",
