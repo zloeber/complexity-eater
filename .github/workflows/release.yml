@@ -44,7 +44,7 @@ jobs:
       - name: Semantic release
         id: release
         if: steps.gate.outputs.proceed == 'true'
-        uses: cycjimmy/semantic-release-action@1989a0fefc4aea321e07f717680ed8e345925dc1 # v7.1.2
+        uses: cycjimmy/semantic-release-action@03595b5eaf44910cf239ff20904cc52d410f97d4 # v8.1.2
         with:
           semantic_version: 24
           # Preset 10 requires conventional-changelog-writer 9.
